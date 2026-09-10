@@ -27,11 +27,43 @@ export interface WalletInfo {
 
 export async function fetchWallet(token: string, nickname?: string): Promise<WalletInfo> {
   const query = nickname === undefined ? "" : `?nickname=${encodeURIComponent(nickname)}`;
-  const res = await fetch(`${SERVER_HTTP_URL}/wallet${query}`, {
+  const res = await fetch(`${SERVER_HTTP_URL}/me${query}`, {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`could not load wallet (${res.status})`);
   return (await res.json()) as WalletInfo;
+}
+
+export interface LeaderboardEntry {
+  readonly userId: string;
+  readonly nickname: string;
+  readonly winPoints: number;
+}
+
+export type LeaderboardPeriod = "week" | "all";
+
+export async function fetchLeaderboard(period: LeaderboardPeriod): Promise<LeaderboardEntry[]> {
+  const res = await fetch(`${SERVER_HTTP_URL}/leaderboard?period=${period}`);
+  if (!res.ok) throw new Error(`could not load leaderboard (${res.status})`);
+  const body = (await res.json()) as { entries: LeaderboardEntry[] };
+  return body.entries;
+}
+
+export interface MockAdResult {
+  readonly ok: boolean;
+  readonly reason?: string;
+  readonly coins?: number;
+  readonly winPoints?: number;
+}
+
+/** Dev/web stand-in for a rewarded ad (server route only exists when ADS_MOCK=true). */
+export async function claimMockAdReward(token: string): Promise<MockAdResult> {
+  const res = await fetch(`${SERVER_HTTP_URL}/ads/mock-reward`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return (await res.json()) as MockAdResult;
 }
 
 export async function findRoomByCode(token: string, code: string): Promise<string> {

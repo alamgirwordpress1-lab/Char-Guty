@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
 import type { GameRoom } from "../game/GameRoom.js";
 import { t } from "../i18n/index.js";
+import { ads } from "../services/ads.js";
 import { getSession } from "../state/session.js";
 import { COLORS, createButton, TEXT_STYLES } from "../ui/kit.js";
 
@@ -19,6 +20,10 @@ export class ResultScene extends Phaser.Scene {
 
   create(data: ResultSceneData): void {
     this.cameras.main.setBackgroundColor(COLORS.background);
+
+    // Hook point: between a finished match and the lobby is where a real interstitial
+    // SDK would show one. No-op on web for now.
+    void ads.showInterstitial();
 
     const won = data.winner !== null && data.winner === getSession().userId;
     this.add

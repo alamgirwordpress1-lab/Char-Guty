@@ -4,6 +4,7 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import { GAME_WIDTH } from "../config.js";
 import { t } from "../i18n/index.js";
+import { ads } from "../services/ads.js";
 import {
   createFriendRoom,
   fetchWallet,
@@ -26,6 +27,7 @@ export class LobbyScene extends Phaser.Scene {
 
   private coinsText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  private watchAdButton!: ButtonHandle;
   private playerCountChips: ButtonHandle[] = [];
   private potChipsContainer!: Phaser.GameObjects.Container;
   private potChips: ButtonHandle[] = [];
@@ -45,22 +47,37 @@ export class LobbyScene extends Phaser.Scene {
     this.potChips = [];
     this.mainButtons = [];
 
-    this.add.text(GAME_WIDTH / 2, 80, t("lobbyTitle"), TEXT_STYLES.title).setOrigin(0.5);
-    this.coinsText = this.add.text(GAME_WIDTH / 2, 150, "", TEXT_STYLES.heading).setOrigin(0.5);
+    this.add.text(GAME_WIDTH / 2, 70, t("lobbyTitle"), TEXT_STYLES.title).setOrigin(0.5);
+    this.coinsText = this.add.text(GAME_WIDTH / 2, 130, "", TEXT_STYLES.heading).setOrigin(0.5);
+    this.watchAdButton = createButton(
+      this,
+      GAME_WIDTH / 2,
+      180,
+      t("watchAd"),
+      () => {
+        void this.watchAdFlow();
+      },
+      { width: 360, height: 60, color: COLORS.secondary, hoverColor: COLORS.secondaryHover },
+    );
     this.refreshBalanceDisplay();
     void this.reloadBalance();
 
-    this.buildPlayerCountRow(240);
-    this.buildPotRow(400);
-    this.buildActions(580);
+    this.buildPlayerCountRow(300);
+    this.buildPotRow(450);
+    this.statusText = this.add.text(GAME_WIDTH / 2, 540, "", TEXT_STYLES.muted).setOrigin(0.5);
+    this.buildActions(620);
+    this.buildLeaderboardButton(830);
     this.buildFriendPanel();
+  }
 
-    this.statusText = this.add.text(GAME_WIDTH / 2, 760, "", TEXT_STYLES.muted).setOrigin(0.5);
+  private currentStake(): number {
+    return this.pot / this.playerCount;
   }
 
   private refreshBalanceDisplay(): void {
     const session = getSession();
     this.coinsText.setText(`${t("coins")}: ${session.coins}`);
+    this.watchAdButton.container.setVisible(session.coins < this.currentStake());
   }
 
   private async reloadBalance(): Promise<void> {
@@ -74,6 +91,31 @@ export class LobbyScene extends Phaser.Scene {
     }
   }
 
+  private async watchAdFlow(): Promise<void> {
+    this.watchAdButton.setEnabled(false);
+    this.statusText.setText(t("watchingAd"));
+    const result = await ads.showRewarded();
+    this.refreshBalanceDisplay();
+    this.watchAdButton.setEnabled(true);
+    this.statusText.setText(result === "rewarded" ? t("adRewarded") : t("adFailed"));
+  }
+
+  private buildLeaderboardButton(y: number): void {
+    createButton(
+      this,
+      GAME_WIDTH / 2,
+      y,
+      t("leaderboardTitle"),
+      () => this.scene.start("Leaderboard"),
+      {
+        width: 300,
+        height: 60,
+        color: COLORS.secondary,
+        hoverColor: COLORS.secondaryHover,
+      },
+    );
+  }
+
   private buildPlayerCountRow(y: number): void {
     this.add.text(GAME_WIDTH / 2, y - 46, t("playersLabel"), TEXT_STYLES.muted).setOrigin(0.5);
     const spacing = 160;
@@ -83,6 +125,7 @@ export class LobbyScene extends Phaser.Scene {
         this.playerCount = count;
         this.syncPlayerCountChips();
         this.rebuildPotRow();
+        this.refreshBalanceDisplay();
       });
       chip.setEnabled(count === this.playerCount);
       this.playerCountChips.push(chip);
@@ -125,6 +168,7 @@ export class LobbyScene extends Phaser.Scene {
         () => {
           this.pot = pot;
           this.syncPotChips();
+          this.refreshBalanceDisplay();
         },
         { width: width - 12 },
       );
@@ -196,7 +240,7 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private buildFriendPanel(): void {
-    const panelY = 940;
+    const panelY = 1050;
     const panel = createPanel(this, GAME_WIDTH / 2, panelY, 640, 300);
     const title = this.add
       .text(GAME_WIDTH / 2, panelY - 120, t("playWithFriends"), TEXT_STYLES.heading)

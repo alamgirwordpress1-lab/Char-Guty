@@ -3,6 +3,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from "./config.js";
 import { setMockGame } from "./dev.js";
 import { BootScene } from "./scenes/BootScene.js";
 import { GameScene } from "./scenes/GameScene.js";
+import { LeaderboardScene } from "./scenes/LeaderboardScene.js";
 import { LobbyScene } from "./scenes/LobbyScene.js";
 import { LoginScene } from "./scenes/LoginScene.js";
 import { ResultScene } from "./scenes/ResultScene.js";
@@ -26,7 +27,7 @@ const config: Phaser.Types.Core.GameConfig = {
   dom: {
     createContainer: true,
   },
-  scene: [BootScene, LoginScene, LobbyScene, GameScene, ResultScene],
+  scene: [BootScene, LoginScene, LobbyScene, GameScene, ResultScene, LeaderboardScene],
 };
 
 new Phaser.Game(config);

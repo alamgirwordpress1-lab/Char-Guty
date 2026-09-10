@@ -39,6 +39,16 @@ export interface Labels {
   readonly reconnecting: string;
   readonly reconnectFailed: string;
   readonly playAgain: string;
+  readonly watchAd: string;
+  readonly watchingAd: string;
+  readonly adRewarded: string;
+  readonly adFailed: string;
+  readonly leaderboardTitle: string;
+  readonly periodWeek: string;
+  readonly periodAll: string;
+  readonly rank: string;
+  readonly winPointsLabel: string;
+  readonly noEntries: string;
 }
 
 const bn: Labels = {
@@ -80,6 +90,16 @@ const bn: Labels = {
   reconnecting: "সংযোগ বিচ্ছিন্ন — পুনরায় সংযোগ হচ্ছে...",
   reconnectFailed: "পুনরায় সংযোগ করা যায়নি",
   playAgain: "আবার খেলুন",
+  watchAd: "বিজ্ঞাপন দেখুন, +২৫ কয়েন",
+  watchingAd: "বিজ্ঞাপন দেখানো হচ্ছে...",
+  adRewarded: "+২৫ কয়েন যোগ হয়েছে!",
+  adFailed: "বিজ্ঞাপন থেকে পুরস্কার পাওয়া যায়নি",
+  leaderboardTitle: "লিডারবোর্ড",
+  periodWeek: "এই সপ্তাহ",
+  periodAll: "সর্বমোট",
+  rank: "স্থান",
+  winPointsLabel: "জয় পয়েন্ট",
+  noEntries: "এখনো কোনো তথ্য নেই",
 };
 
 const en: Labels = {
@@ -121,6 +141,16 @@ const en: Labels = {
   reconnecting: "Disconnected — reconnecting...",
   reconnectFailed: "Could not reconnect",
   playAgain: "Play again",
+  watchAd: "Watch ad, +25 coins",
+  watchingAd: "Showing ad...",
+  adRewarded: "+25 coins added!",
+  adFailed: "Could not get ad reward",
+  leaderboardTitle: "Leaderboard",
+  periodWeek: "This week",
+  periodAll: "All time",
+  rank: "Rank",
+  winPointsLabel: "Win points",
+  noEntries: "No entries yet",
 };
 
 const locales: Record<Locale, Labels> = { bn, en };
