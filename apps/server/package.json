@@ -6,7 +6,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts",
-    "bot-test": "tsx scripts/bot-test.ts"
+    "bot-test": "tsx scripts/bot-test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@char-guty/game-core": "workspace:*",
@@ -14,11 +16,21 @@
     "@colyseus/ws-transport": "^0.16.5",
     "colyseus": "^0.16.5",
     "colyseus.js": "^0.16.22",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.3",
+    "firebase-admin": "^14.4.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
     "zod": "^4.6.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.13"
   }
 }

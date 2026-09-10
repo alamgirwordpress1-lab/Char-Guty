@@ -10,6 +10,7 @@ import {
 describe("joinOptionsSchema", () => {
   it("accepts a random-mode join with pot and playerCount", () => {
     const result = joinOptionsSchema.safeParse({
+      token: "t",
       nickname: "alice",
       mode: "random",
       playerCount: 2,
@@ -20,6 +21,7 @@ describe("joinOptionsSchema", () => {
 
   it("accepts a friend-mode join without a pot", () => {
     const result = joinOptionsSchema.safeParse({
+      token: "t",
       nickname: "bob",
       mode: "friend",
       playerCount: 4,
@@ -28,16 +30,27 @@ describe("joinOptionsSchema", () => {
   });
 
   it("rejects a random-mode join missing a pot", () => {
-    const result = joinOptionsSchema.safeParse({ nickname: "bob", mode: "random", playerCount: 2 });
+    const result = joinOptionsSchema.safeParse({
+      token: "t",
+      nickname: "bob",
+      mode: "random",
+      playerCount: 2,
+    });
     expect(result.success).toBe(false);
   });
 
   it("rejects an empty nickname", () => {
     const result = joinOptionsSchema.safeParse({
+      token: "t",
       nickname: "",
       mode: "friend",
       playerCount: 2,
     });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing token", () => {
+    const result = joinOptionsSchema.safeParse({ nickname: "bob", mode: "friend", playerCount: 2 });
     expect(result.success).toBe(false);
   });
 });

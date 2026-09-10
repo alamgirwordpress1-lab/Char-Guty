@@ -16,6 +16,8 @@ export const roomModeSchema = z.enum(["friend", "random"]);
 
 export const joinOptionsSchema = z
   .object({
+    /** Guest JWT (from POST /auth/guest) or a real Firebase ID token. */
+    token: z.string().min(1),
     nickname: z.string().min(1).max(20),
     mode: roomModeSchema,
     /** Seat count; always required so the room knows its capacity upfront. */
