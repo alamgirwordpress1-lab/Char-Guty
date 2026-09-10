@@ -4,10 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate-assets": "tsx scripts/generate-assets.ts"
   },
   "dependencies": {
     "@char-guty/game-core": "workspace:*",
@@ -17,6 +18,9 @@
     "phaser": "^4.2.1"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
+    "sharp": "^0.35.4",
+    "tsx": "^4.23.13",
     "vite": "^8.3.0"
   }
 }

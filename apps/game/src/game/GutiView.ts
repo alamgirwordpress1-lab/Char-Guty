@@ -7,24 +7,19 @@ export type Highlight = "none" | "candidate" | "active";
 
 const RX = GUTI_RADIUS * FIELD_SCALE;
 const RY = Math.round(RX * 0.7);
-const BODY = 0xa8825a;
-const FLAT_TOP = 0xf1e7d3;
-const ROUND_TOP = 0x6b4a2a;
-const OUTLINE = 0x3b2a18;
 
-function halfEllipse(rx: number, ry: number): Phaser.Math.Vector2[] {
-  const points: Phaser.Math.Vector2[] = [];
-  for (let i = 0; i <= 24; i++) {
-    const a = Math.PI + (Math.PI * i) / 24;
-    points.push(new Phaser.Math.Vector2(rx * Math.cos(a), ry * Math.sin(a)));
-  }
-  return points;
+function textureFor(side: Side): string {
+  return side === "F" ? "guti-flat" : "guti-round";
 }
 
-/** A guti drawn as an ellipse whose top half is the face-up side: flat = light, round = dark. */
+/**
+ * A guti sprite (real art from public/assets, or BootScene's vector fallback under the
+ * same texture key - this class doesn't know or care which it got). Side flips the
+ * texture between the flat-up and round-up art.
+ */
 export class GutiView {
   readonly container: Phaser.GameObjects.Container;
-  private readonly body: Phaser.GameObjects.Graphics;
+  private readonly sprite: Phaser.GameObjects.Image;
   private readonly ring: Phaser.GameObjects.Graphics;
   private side: Side;
 
@@ -37,14 +32,13 @@ export class GutiView {
   ) {
     this.side = side;
     this.ring = scene.add.graphics();
-    this.body = scene.add.graphics();
-    this.container = scene.add.container(x, y, [this.ring, this.body]).setDepth(5);
+    this.sprite = scene.add.image(0, 0, textureFor(side)).setDisplaySize(RX * 2, RY * 2);
+    this.container = scene.add.container(x, y, [this.sprite, this.ring]).setDepth(5);
     this.container.setSize(RX * 2, RY * 2);
     this.container.setInteractive(
       new Phaser.Geom.Circle(0, 0, RX + 8),
       Phaser.Geom.Circle.Contains,
     );
-    this.draw();
   }
 
   get x(): number {
@@ -62,7 +56,7 @@ export class GutiView {
   setSide(side: Side): void {
     if (side === this.side) return;
     this.side = side;
-    this.draw();
+    this.sprite.setTexture(textureFor(side)).setDisplaySize(RX * 2, RY * 2);
   }
 
   setHighlight(highlight: Highlight): void {
@@ -74,22 +68,5 @@ export class GutiView {
 
   destroy(): void {
     this.container.destroy();
-  }
-
-  private draw(): void {
-    const g = this.body;
-    g.clear();
-    g.fillStyle(0x000000, 0.25);
-    g.fillEllipse(3, 4, RX * 2, RY * 2);
-    g.fillStyle(BODY, 1);
-    g.fillEllipse(0, 0, RX * 2, RY * 2);
-    g.fillStyle(this.side === "F" ? FLAT_TOP : ROUND_TOP, 1);
-    g.fillPoints(halfEllipse(RX, RY), true);
-    if (this.side === "R") {
-      g.fillStyle(0xffffff, 0.3);
-      g.fillEllipse(-RX * 0.35, -RY * 0.45, RX * 0.5, RY * 0.35);
-    }
-    g.lineStyle(2, OUTLINE, 0.9);
-    g.strokeEllipse(0, 0, RX * 2, RY * 2);
   }
 }

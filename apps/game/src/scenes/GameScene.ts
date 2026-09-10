@@ -131,12 +131,7 @@ export class GameScene extends Phaser.Scene {
     this.add
       .rectangle(cx, cy, FIELD_PX_W + 48, FIELD_PX_H + 48, 0x5b4128)
       .setStrokeStyle(4, 0x3b2a18);
-    this.add.rectangle(cx, cy, FIELD_PX_W + 16, FIELD_PX_H + 16, 0x8a6a45);
-    for (let i = 0; i < 28; i++) {
-      const x = FIELD_LEFT + ((i * 97) % FIELD_PX_W);
-      const y = FIELD_TOP + ((i * 61) % FIELD_PX_H);
-      this.add.image(x, y, "tile").setAlpha(0.35).setScale(0.6);
-    }
+    this.add.image(cx, cy, "courtyard-bg").setDisplaySize(FIELD_PX_W, FIELD_PX_H);
     this.pairsGfx = this.add.graphics().setDepth(1);
     this.aimGfx = this.add.graphics().setDepth(10);
   }
@@ -304,26 +299,42 @@ export class GameScene extends Phaser.Scene {
   // ---- events / animation ----
 
   private async playEvents(events: EventsMsg): Promise<void> {
+    let lastWasTokka = false;
     for (const event of events) {
       switch (event.type) {
         case "THROW":
           await this.playThrow(event.player, event.result.gutis);
           await this.toast(`${event.result.flatCount}F`);
+          lastWasTokka = false;
           break;
         case "SCORE":
+          if (lastWasTokka) this.playSfx("sfx-tokka-hit");
           await this.toast(`+${event.points}`);
+          lastWasTokka = false;
           break;
         case "DIE":
+          this.playSfx("sfx-die");
           await this.toast(t("die"));
+          lastWasTokka = false;
           break;
         case "WIN":
+          this.playSfx("sfx-win");
           await this.toast(event.reason === "ZERO_FLAT" ? t("instantWin") : t("winToast"));
+          lastWasTokka = false;
           break;
         case "TOKKA":
+          lastWasTokka = true;
+          break;
         case "TURN":
+          lastWasTokka = false;
           break;
       }
     }
+  }
+
+  /** No-ops if the sound failed to load - see BootScene's asset fallback comment. */
+  private playSfx(key: string): void {
+    if (this.cache.audio.exists(key)) this.sound.play(key);
   }
 
   /** Tosses the stack in from the thrower's side, then settles onto the server positions/sides. */
@@ -334,6 +345,7 @@ export class GameScene extends Phaser.Scene {
     const originY = FIELD_TOP + FIELD_PX_H / 2;
 
     this.setPairs([]);
+    this.playSfx("sfx-throw");
     const flights = gutis.map((g, i) => {
       let view = this.gutis.get(g.id);
       if (view === undefined) {
@@ -345,6 +357,7 @@ export class GameScene extends Phaser.Scene {
       return this.flyGuti(view, target.x, target.y, g.side, i * 60);
     });
     await Promise.all(flights);
+    this.playSfx("sfx-land");
   }
 
   private flyGuti(view: GutiView, x: number, y: number, side: Side, delay: number): Promise<void> {

@@ -52,6 +52,34 @@ export const TEXT_STYLES = {
   },
 } as const satisfies Record<string, Phaser.Types.GameObjects.Text.TextStyle>;
 
+/** Matches panel-9slice.png's baked-in bevel/corner art (see apps/game/scripts/generate-assets.ts). */
+const NINESLICE_BORDER = 24;
+
+/** The "panel-9slice" texture (real art, or BootScene's flat-rect fallback), tinted. */
+function nineSlicePanel(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  tint: number,
+): Phaser.GameObjects.NineSlice {
+  const ns = scene.add.nineslice(
+    x,
+    y,
+    "panel-9slice",
+    undefined,
+    width,
+    height,
+    NINESLICE_BORDER,
+    NINESLICE_BORDER,
+    NINESLICE_BORDER,
+    NINESLICE_BORDER,
+  );
+  ns.setTint(tint);
+  return ns;
+}
+
 export interface ButtonHandle {
   readonly container: Phaser.GameObjects.Container;
   setEnabled(enabled: boolean): void;
@@ -65,7 +93,7 @@ export interface ButtonOptions {
   readonly textStyle?: Phaser.Types.GameObjects.Text.TextStyle;
 }
 
-/** A simple rectangle+label button. No external assets - drawn as vector shapes. */
+/** A 9-slice, tinted button so it stays crisp at any size instead of a stretched image. */
 export function createButton(
   scene: Phaser.Scene,
   x: number,
@@ -79,19 +107,19 @@ export function createButton(
   const color = options.color ?? COLORS.primary;
   const hoverColor = options.hoverColor ?? COLORS.primaryHover;
 
-  const bg = scene.add.rectangle(0, 0, width, height, color).setStrokeStyle(2, 0xffffff, 0.15);
+  const bg = nineSlicePanel(scene, 0, 0, width, height, color);
   const text = scene.add.text(0, 0, label, options.textStyle ?? TEXT_STYLES.button).setOrigin(0.5);
   const container = scene.add.container(x, y, [bg, text]);
   container.setSize(width, height);
 
   let enabled = true;
   container.setInteractive({ useHandCursor: true });
-  container.on("pointerover", () => enabled && bg.setFillStyle(hoverColor));
-  container.on("pointerout", () => enabled && bg.setFillStyle(color));
-  container.on("pointerdown", () => enabled && bg.setFillStyle(hoverColor));
+  container.on("pointerover", () => enabled && bg.setTint(hoverColor));
+  container.on("pointerout", () => enabled && bg.setTint(color));
+  container.on("pointerdown", () => enabled && bg.setTint(hoverColor));
   container.on("pointerup", () => {
     if (!enabled) return;
-    bg.setFillStyle(color);
+    bg.setTint(color);
     onClick();
   });
 
@@ -100,7 +128,7 @@ export function createButton(
     setEnabled(next: boolean): void {
       enabled = next;
       container.setAlpha(next ? 1 : 0.5);
-      bg.setFillStyle(color);
+      bg.setTint(color);
     },
   };
 }
@@ -118,9 +146,14 @@ export function createChip(
   const height = options.height ?? 64;
   const selected = options.selected ?? false;
 
-  const bg = scene.add
-    .rectangle(0, 0, width, height, selected ? COLORS.chipSelected : COLORS.chip)
-    .setStrokeStyle(2, COLORS.panelBorder);
+  const bg = nineSlicePanel(
+    scene,
+    0,
+    0,
+    width,
+    height,
+    selected ? COLORS.chipSelected : COLORS.chip,
+  );
   const text = scene.add.text(0, 0, label, TEXT_STYLES.chip).setOrigin(0.5);
   const container = scene.add.container(x, y, [bg, text]);
   container.setSize(width, height);
@@ -130,7 +163,7 @@ export function createChip(
   return {
     container,
     setEnabled(next: boolean): void {
-      bg.setFillStyle(next ? COLORS.chipSelected : COLORS.chip);
+      bg.setTint(next ? COLORS.chipSelected : COLORS.chip);
     },
   };
 }
@@ -141,8 +174,8 @@ export function createPanel(
   y: number,
   width: number,
   height: number,
-): Phaser.GameObjects.Rectangle {
-  return scene.add
-    .rectangle(x, y, width, height, COLORS.panel, 0.96)
-    .setStrokeStyle(2, COLORS.panelBorder);
+): Phaser.GameObjects.NineSlice {
+  const panel = nineSlicePanel(scene, x, y, width, height, 0xffffff);
+  panel.setAlpha(0.96);
+  return panel;
 }
