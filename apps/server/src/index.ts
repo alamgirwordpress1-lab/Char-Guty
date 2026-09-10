@@ -2,15 +2,21 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { matchMaker, Server } from "colyseus";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import { issueGuestToken, verifyAuthToken } from "./auth/auth.js";
 import { db } from "./db/client.js";
 import { upsertUser } from "./db/userService.js";
+import { getBalance } from "./db/walletService.js";
 import { GutiRoom } from "./rooms/GutiRoom.js";
 
 const PORT = Number(process.env.PORT ?? 2567);
 
 const app = Fastify();
+
+function bearerToken(request: FastifyRequest): string | undefined {
+  const authorization = request.headers.authorization;
+  return authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
+}
 
 app.get("/health", async () => ({ status: "ok" }));
 
@@ -29,11 +35,32 @@ app.post("/auth/guest", async (request) => {
   return { userId: user.id, token: issueGuestToken(guestId), nickname };
 });
 
+app.get("/wallet", async (request, reply) => {
+  const token = bearerToken(request);
+  if (token === undefined) {
+    reply.code(401);
+    return { error: "missing bearer token" };
+  }
+  const { nickname } = request.query as { nickname?: string };
+  try {
+    const verified = await verifyAuthToken(token);
+    // Idempotent: creates the user (+ signup bonus) on first call, no-ops after.
+    const user = await upsertUser(db, {
+      provider: verified.provider,
+      providerId: verified.providerId,
+      nickname: nickname ?? "Player",
+      isGuest: verified.isGuest,
+    });
+    const balance = await getBalance(db, user.id);
+    return { userId: user.id, nickname: user.nickname, ...balance };
+  } catch {
+    reply.code(401);
+    return { error: "invalid token" };
+  }
+});
+
 app.get("/rooms/by-code/:code", async (request, reply) => {
-  const authorization = request.headers.authorization;
-  const token = authorization?.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length)
-    : undefined;
+  const token = bearerToken(request);
   if (token === undefined) {
     reply.code(401);
     return { error: "missing bearer token" };
