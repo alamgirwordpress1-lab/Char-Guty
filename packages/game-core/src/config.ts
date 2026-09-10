@@ -13,14 +13,16 @@ export interface GameConfig {
   readonly fieldHeight: number;
   /** Throw scatter: minimum centre-to-centre distance between landed gutis, in px. */
   readonly minSpacing: number;
-  /** Sim tuning: constant deceleration applied to a flicked guti, in px/s^2. */
+  /** Sim tuning: constant deceleration applied to a moving guti, in px/s^2. */
   readonly friction: number;
   /** Sim tuning: fixed simulation timestep, in seconds. */
   readonly dt: number;
-  /** Sim tuning: speed (px/s) below which a flicked guti is considered stopped. */
+  /** Sim tuning: speed (px/s) below which a guti is considered stopped. */
   readonly restSpeed: number;
-  /** Sim tuning: safety cutoff so a flick simulation always terminates. */
-  readonly maxSteps: number;
+  /** Sim tuning: flick power (px/s) is clamped to this; keep maxFlickPower * dt < 2 * gutiRadius. */
+  readonly maxFlickPower: number;
+  /** Sim tuning: hard cap on simulated time so a tokka always terminates. */
+  readonly maxSimSeconds: number;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -35,5 +37,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   friction: 400,
   dt: 1 / 60,
   restSpeed: 2,
-  maxSteps: 600,
+  maxFlickPower: 600,
+  maxSimSeconds: 5,
 };
