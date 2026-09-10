@@ -75,6 +75,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   private readonly rng = new CryptoRng();
   private readonly forfeited = new Set<string>();
   private actionTimer: Delayed | null = null;
+  /** Epoch ms by which the current player must act; null when nothing is pending. */
+  private turnDeadlineAt: number | null = null;
   /** Serializes DB-touching mutations - message handlers are async now, so a second
    * message can otherwise arrive mid-await and race the first. */
   private busy = false;
@@ -142,7 +144,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       return;
     }
     try {
-      await this.allowReconnection(client, 60);
+      const reconnected = await this.allowReconnection(client, 60);
+      reconnected.send("state", this.statePayload());
     } catch {
       this.handleDeparture(this.userIdFor(client));
     }
@@ -232,23 +235,31 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
 
   private async applyMatchResult(state: MatchState, events: readonly MatchEvent[]): Promise<void> {
     this.matchState = state;
-    this.broadcast("events", events);
-    this.broadcastState();
     if (state.phase === "ENDED") {
+      this.turnDeadlineAt = null;
+      this.broadcast("events", events);
+      this.broadcastState();
       await this.finishMatch(state);
       return;
     }
+    // Schedule first so the new deadline rides along in this state broadcast.
     this.scheduleNextAction();
+    this.broadcast("events", events);
+    this.broadcastState();
   }
 
   private scheduleNextAction(): void {
     this.actionTimer?.clear();
     this.actionTimer = null;
+    this.turnDeadlineAt = null;
     if (this.matchState === null) return;
     if (this.forfeited.has(this.matchState.currentPlayer)) {
-      void this.withLock(() => this.runTimeout());
+      // Deferred a tick: this runs inside the lock that produced the current state,
+      // so an immediate withLock() call would be dropped as busy.
+      this.clock.setTimeout(() => void this.withLock(() => this.runTimeout()), 0);
       return;
     }
+    this.turnDeadlineAt = Date.now() + DEFAULT_CONFIG.turnTimeoutMs;
     this.actionTimer = this.clock.setTimeout(
       () => void this.withLock(() => this.runTimeout()),
       DEFAULT_CONFIG.turnTimeoutMs,
@@ -391,14 +402,20 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     this.clock.setTimeout(() => this.disconnect(), 10_000);
   }
 
-  private broadcastState(): void {
-    this.broadcast("state", {
+  private statePayload() {
+    return {
       mode: this.mode,
       code: this.code,
       roomPhase: this.roomPhase,
       hostUserId: this.hostUserId,
       seats: this.seats,
       match: this.matchState,
-    });
+      turnDeadlineAt: this.turnDeadlineAt,
+      serverNow: Date.now(),
+    };
+  }
+
+  private broadcastState(): void {
+    this.broadcast("state", this.statePayload());
   }
 }

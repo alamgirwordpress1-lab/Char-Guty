@@ -26,6 +26,19 @@ export interface Labels {
   readonly loading: string;
   readonly gameComingSoon: string;
   readonly leave: string;
+  readonly throw: string;
+  readonly you: string;
+  readonly yourTurn: string;
+  readonly turnOf: string;
+  readonly tokkaHint: string;
+  readonly aimHint: string;
+  readonly aimCancelled: string;
+  readonly die: string;
+  readonly instantWin: string;
+  readonly winToast: string;
+  readonly reconnecting: string;
+  readonly reconnectFailed: string;
+  readonly playAgain: string;
 }
 
 const bn: Labels = {
@@ -54,6 +67,19 @@ const bn: Labels = {
   loading: "লোড হচ্ছে...",
   gameComingSoon: "খেলা শীঘ্রই আসছে",
   leave: "চলে যান",
+  throw: "ছুঁড়ুন",
+  you: "আপনি",
+  yourTurn: "আপনার পালা",
+  turnOf: " এর পালা",
+  tokkaHint: "হলুদ গুটি টেনে টোক্কা দিন",
+  aimHint: "লক্ষ্যের দিকে টানুন, ছাড়লেই টোক্কা",
+  aimCancelled: "হাইলাইট করা গুটির দিকে টানুন",
+  die: "ডাই!",
+  instantWin: "সব উল্টো — তাৎক্ষণিক জয়!",
+  winToast: "জয়!",
+  reconnecting: "সংযোগ বিচ্ছিন্ন — পুনরায় সংযোগ হচ্ছে...",
+  reconnectFailed: "পুনরায় সংযোগ করা যায়নি",
+  playAgain: "আবার খেলুন",
 };
 
 const en: Labels = {
@@ -82,6 +108,19 @@ const en: Labels = {
   loading: "Loading...",
   gameComingSoon: "Game coming soon",
   leave: "Leave",
+  throw: "Throw",
+  you: "you",
+  yourTurn: "Your turn",
+  turnOf: "'s turn",
+  tokkaHint: "Drag a highlighted guti to tokka",
+  aimHint: "Drag toward the target, release to flick",
+  aimCancelled: "Aim at a highlighted guti",
+  die: "DIE!",
+  instantWin: "All round — instant win!",
+  winToast: "WIN!",
+  reconnecting: "Disconnected — reconnecting...",
+  reconnectFailed: "Could not reconnect",
+  playAgain: "Play again",
 };
 
 const locales: Record<Locale, Labels> = { bn, en };

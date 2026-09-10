@@ -56,3 +56,8 @@ export function createFriendRoom(options: JoinOptions): Promise<Room> {
 export function joinRoomById(roomId: string, options: JoinOptions): Promise<Room> {
   return client.joinById(roomId, options);
 }
+
+/** Resumes a dropped session; the server holds the seat for 60s (GutiRoom.onLeave). */
+export function reconnectRoom(reconnectionToken: string): Promise<Room> {
+  return client.reconnect(reconnectionToken);
+}

@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@char-guty/game-core": "workspace:*",
     "@char-guty/shared": "workspace:*",
     "colyseus.js": "^0.16.22",
     "firebase": "^12.19.0",

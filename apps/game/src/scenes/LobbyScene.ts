@@ -188,7 +188,9 @@ export class LobbyScene extends Phaser.Scene {
       }
       this.statusText.setText(`${t("waiting")} (${state.seats.length}/${this.playerCount})`);
       if (state.roomPhase === "PLAYING") {
-        this.scene.start("Game", { room });
+        // This handler would otherwise keep firing (and restarting Game) on every later state.
+        room.removeAllListeners();
+        this.scene.start("Game", { room, initialState: state });
       }
     });
   }

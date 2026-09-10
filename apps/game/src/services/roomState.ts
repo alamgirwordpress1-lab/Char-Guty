@@ -1,6 +1,6 @@
-import type { MatchStateMsg } from "@char-guty/shared";
+import type { MatchEventMsg, MatchStateMsg, TokkaFramesMsg } from "@char-guty/shared";
 
-/** Mirrors GutiRoom's broadcastState() payload (apps/server/src/rooms/GutiRoom.ts). */
+/** Mirrors GutiRoom's statePayload() (apps/server/src/rooms/GutiRoom.ts). */
 export interface RoomStateMsg {
   readonly mode: "friend" | "random";
   readonly code: string | null;
@@ -8,6 +8,10 @@ export interface RoomStateMsg {
   readonly hostUserId: string | null;
   readonly seats: readonly { sessionId: string; userId: string; nickname: string }[];
   readonly match: MatchStateMsg | null;
+  /** Epoch ms of the current action deadline; null when nothing is pending. */
+  readonly turnDeadlineAt: number | null;
+  /** Server clock at send time - the client derives an offset from it for the countdown. */
+  readonly serverNow: number;
 }
 
 /** Mirrors GutiRoom's "matchEnded" broadcast payload. */
@@ -19,3 +23,7 @@ export interface MatchEndedMsg {
     readonly deltas: Readonly<Record<string, number>>;
   };
 }
+
+export type EventsMsg = readonly MatchEventMsg[];
+
+export type { MatchEventMsg, MatchStateMsg, TokkaFramesMsg };

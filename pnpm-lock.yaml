@@ -34,6 +34,9 @@ importers:
 
   apps/game:
     dependencies:
+      '@char-guty/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
       '@char-guty/shared':
         specifier: workspace:*
         version: link:../../packages/shared

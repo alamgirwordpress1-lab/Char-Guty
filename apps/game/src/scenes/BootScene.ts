@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { getMockGame } from "../dev.js";
 
 /** No external assets: every texture used later is generated here from vector shapes. */
 export class BootScene extends Phaser.Scene {
@@ -25,6 +26,8 @@ export class BootScene extends Phaser.Scene {
 
     g.destroy();
 
-    this.scene.start("Login");
+    const mock = getMockGame();
+    if (mock !== null) this.scene.start("Game", mock);
+    else this.scene.start("Login");
   }
 }
