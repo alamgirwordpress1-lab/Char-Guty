@@ -1,0 +1,49 @@
+# Builds a debug APK in the cloud, so nobody needs Android Studio locally. Download it
+# from the run's Artifacts section and install it on a phone (allow "unknown sources").
+# A Play Store release needs a signing key and is not done here.
+name: Android debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "apps/game/**"
+      - "packages/**"
+      - ".github/workflows/android-debug-apk.yml"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: pnpm install --frozen-lockfile
+
+      # apps/game imports these workspace packages from their dist output.
+      - run: pnpm --filter @char-guty/game-core --filter @char-guty/shared run build
+
+      - run: pnpm --filter @char-guty/game run build:android
+
+      - run: ./gradlew assembleDebug
+        working-directory: apps/game/android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: char-guty-debug-apk
+          path: apps/game/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
