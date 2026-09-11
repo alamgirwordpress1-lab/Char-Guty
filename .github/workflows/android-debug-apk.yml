@@ -39,7 +39,8 @@ jobs:
 
       - run: pnpm --filter @char-guty/game run build:android
 
-      - run: ./gradlew assembleDebug
+      # gradlew is committed from Windows, so the runner has to be told it is executable.
+      - run: chmod +x gradlew && ./gradlew assembleDebug
         working-directory: apps/game/android
 
       - uses: actions/upload-artifact@v4
