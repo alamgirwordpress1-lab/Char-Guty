@@ -1,5 +1,5 @@
 import type { JoinOptions } from "@char-guty/shared";
-import { Client, type Room } from "colyseus.js";
+import type { Client, Room } from "colyseus.js";
 import { SERVER_HTTP_URL, SERVER_WS_URL } from "../config.js";
 
 export interface GuestAuth {
@@ -75,21 +75,39 @@ export async function findRoomByCode(token: string, code: string): Promise<strin
   return body.roomId;
 }
 
-const client = new Client(SERVER_WS_URL);
+// colyseus.js is only needed once a match is actually being joined/created - not for
+// login or browsing the lobby - so it's dynamically imported instead of bundled
+// eagerly, keeping it out of the initial (first-paint) chunk.
+let clientPromise: Promise<Client> | undefined;
 
-export function joinRandomMatch(options: JoinOptions): Promise<Room> {
+function getClient(): Promise<Client> {
+  clientPromise ??= import("colyseus.js").then((mod) => new mod.Client(SERVER_WS_URL));
+  return clientPromise;
+}
+
+export async function joinRandomMatch(options: JoinOptions): Promise<Room> {
+  const client = await getClient();
   return client.joinOrCreate("guti", options);
 }
 
-export function createFriendRoom(options: JoinOptions): Promise<Room> {
+export async function createFriendRoom(options: JoinOptions): Promise<Room> {
+  const client = await getClient();
   return client.create("guti", options);
 }
 
-export function joinRoomById(roomId: string, options: JoinOptions): Promise<Room> {
+/** A practice game: the server seats computer players and starts it at once. */
+export async function createComputerGame(options: JoinOptions): Promise<Room> {
+  const client = await getClient();
+  return client.create("guti", options);
+}
+
+export async function joinRoomById(roomId: string, options: JoinOptions): Promise<Room> {
+  const client = await getClient();
   return client.joinById(roomId, options);
 }
 
 /** Resumes a dropped session; the server holds the seat for 60s (GutiRoom.onLeave). */
-export function reconnectRoom(reconnectionToken: string): Promise<Room> {
+export async function reconnectRoom(reconnectionToken: string): Promise<Room> {
+  const client = await getClient();
   return client.reconnect(reconnectionToken);
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import cors from "@fastify/cors";
 import { matchMaker } from "colyseus";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { getVerifierKeys } from "./ads/googleKeys.js";
@@ -25,6 +26,11 @@ export interface BuildAppOptions {
 
 export function buildApp({ db }: BuildAppOptions): FastifyInstance {
   const app = Fastify();
+
+  // Bearer-token auth (no cookies), served to web/native/FB-Instant-Games contexts
+  // with different origins - reflecting the request origin is safe here since there's
+  // no session/cookie to leak, and an allowlist would need constant upkeep.
+  void app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ status: "ok" }));
 

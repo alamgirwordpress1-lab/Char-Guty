@@ -3,7 +3,7 @@ import { matches } from "./schema.js";
 import type { Database } from "./types.js";
 
 export interface StartMatchInput {
-  readonly mode: "friend" | "random";
+  readonly mode: "friend" | "random" | "computer";
   readonly pot: number;
   readonly playerCount: number;
   readonly players: readonly string[];

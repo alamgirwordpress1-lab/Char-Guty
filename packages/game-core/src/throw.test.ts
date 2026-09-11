@@ -10,6 +10,7 @@ const config: ThrowConfig = {
   fieldWidth: DEFAULT_CONFIG.fieldWidth,
   fieldHeight: DEFAULT_CONFIG.fieldHeight,
   minSpacing: DEFAULT_CONFIG.minSpacing,
+  gutiRadius: DEFAULT_CONFIG.gutiRadius,
 };
 
 function minPairDistance(gutis: readonly Guti[]): number {
@@ -35,14 +36,16 @@ describe("throwGutis", () => {
     expect(throwGutis(new SeededRng(42), config)).toEqual(throwGutis(new SeededRng(42), config));
   });
 
-  it("lands every guti inside the field and respects minSpacing", () => {
+  it("lands every guti wholly on the mat and respects minSpacing", () => {
     const rng = new SeededRng(7);
+    const r = config.gutiRadius;
     for (let i = 0; i < 1000; i++) {
       const gutis = throwGutis(rng, config);
-      const inField = gutis.every(
-        (g) => g.x >= 0 && g.x < config.fieldWidth && g.y >= 0 && g.y < config.fieldHeight,
+      const onMat = gutis.every(
+        (g) =>
+          g.x >= r && g.x <= config.fieldWidth - r && g.y >= r && g.y <= config.fieldHeight - r,
       );
-      expect(inField).toBe(true);
+      expect(onMat).toBe(true);
       expect(minPairDistance(gutis)).toBeGreaterThanOrEqual(config.minSpacing);
     }
   });
@@ -66,7 +69,13 @@ describe("throwGutis", () => {
   });
 
   it("throws when the field cannot satisfy minSpacing", () => {
-    const cramped: ThrowConfig = { pFlat: 0.7, fieldWidth: 10, fieldHeight: 10, minSpacing: 100 };
+    const cramped: ThrowConfig = {
+      pFlat: 0.7,
+      fieldWidth: 10,
+      fieldHeight: 10,
+      minSpacing: 100,
+      gutiRadius: 1,
+    };
     expect(() => throwGutis(new SeededRng(3), cramped)).toThrow(/minSpacing/);
   });
 });

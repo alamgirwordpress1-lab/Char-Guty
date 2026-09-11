@@ -1,122 +1,107 @@
 import Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
-import { t } from "../i18n/index.js";
+import { GAME_WIDTH } from "../config.js";
 import { fetchLeaderboard } from "../services/net.js";
 import type { LeaderboardEntry, LeaderboardPeriod } from "../services/net.js";
 import { getSession } from "../state/session.js";
-import { COLORS, createButton, createChip, createPanel, TEXT_STYLES } from "../ui/kit.js";
-import type { ButtonHandle } from "../ui/kit.js";
+import { openFreeCoins } from "../ui/freeCoins.js";
+import { COLOR, TEXT } from "../ui/theme.js";
+import {
+  avatar,
+  glossyButton,
+  menuBackground,
+  panel,
+  screenHeader,
+  shortName,
+} from "../ui/widgets.js";
 
-const LIST_TOP = 300;
-const ROW_H = 52;
-const MAX_ROWS = 15;
+const LIST_Y = 740;
+const FIRST_ROW_Y = 350;
+const ROW_HEIGHT = 86;
+const SHOWN = 10;
+const MEDALS = [0xffd166, 0xd9e2ec, 0xe39b5a];
 
 export class LeaderboardScene extends Phaser.Scene {
   private period: LeaderboardPeriod = "all";
-  private periodChips: ButtonHandle[] = [];
-  private listContainer!: Phaser.GameObjects.Container;
-  private statusText!: Phaser.GameObjects.Text;
+  private status!: Phaser.GameObjects.Text;
 
   constructor() {
     super("Leaderboard");
   }
 
-  create(): void {
-    this.cameras.main.setBackgroundColor(COLORS.background);
-    this.periodChips = [];
+  create(data: { period?: LeaderboardPeriod }): void {
+    this.period = data.period ?? "all";
+    menuBackground(this);
+    const coins = screenHeader(
+      this,
+      "Leaderboard",
+      () => this.scene.start("Home"),
+      () => openFreeCoins(this, (balance) => coins.setCoins(balance)),
+    );
 
-    this.add.text(GAME_WIDTH / 2, 90, t("leaderboardTitle"), TEXT_STYLES.title).setOrigin(0.5);
-
-    const chipY = 190;
-    const options: { period: LeaderboardPeriod; label: string }[] = [
-      { period: "all", label: t("periodAll") },
-      { period: "week", label: t("periodWeek") },
+    const tabs: readonly (readonly [LeaderboardPeriod, string])[] = [
+      ["all", "ALL TIME"],
+      ["week", "THIS WEEK"],
     ];
-    options.forEach((opt, i) => {
-      const chip = createChip(
+    tabs.forEach(([period, label], i) => {
+      glossyButton(
         this,
-        GAME_WIDTH / 2 + (i === 0 ? -110 : 110),
-        chipY,
-        opt.label,
-        () => {
-          this.period = opt.period;
-          this.syncPeriodChips();
-          void this.loadEntries();
-        },
-        { width: 200 },
+        GAME_WIDTH / 2 + (i === 0 ? -150 : 150),
+        214,
+        label,
+        () => this.scene.restart({ period }),
+        { width: 280, height: 84, color: period === this.period ? "orange" : "gray", fontSize: 28 },
       );
-      chip.setEnabled(opt.period === this.period);
-      this.periodChips.push(chip);
     });
 
-    createPanel(
-      this,
-      GAME_WIDTH / 2,
-      LIST_TOP + (MAX_ROWS * ROW_H) / 2,
-      660,
-      MAX_ROWS * ROW_H + 20,
-    );
-    this.listContainer = this.add.container(0, 0);
-    this.statusText = this.add
-      .text(GAME_WIDTH / 2, LIST_TOP + 20, t("loading"), TEXT_STYLES.muted)
-      .setOrigin(0.5, 0);
-
-    createButton(
-      this,
-      GAME_WIDTH / 2,
-      GAME_HEIGHT - 90,
-      t("back"),
-      () => this.scene.start("Lobby"),
-      {
-        width: 220,
-        height: 56,
-        color: COLORS.secondary,
-        hoverColor: COLORS.secondaryHover,
-      },
-    );
-
+    panel(this, GAME_WIDTH / 2, LIST_Y, 660, 900, "glass");
+    this.status = this.add.text(GAME_WIDTH / 2, LIST_Y, "Loading...", TEXT.body).setOrigin(0.5);
     void this.loadEntries();
   }
 
-  private syncPeriodChips(): void {
-    this.periodChips[0]?.setEnabled(this.period === "all");
-    this.periodChips[1]?.setEnabled(this.period === "week");
-  }
-
   private async loadEntries(): Promise<void> {
-    this.statusText.setText(t("loading"));
-    this.listContainer.removeAll(true);
     try {
       const entries = await fetchLeaderboard(this.period);
-      this.render(entries);
-    } catch (err) {
-      this.statusText.setText(err instanceof Error ? err.message : String(err));
+      if (this.sys.isActive()) this.showEntries(entries);
+    } catch {
+      if (this.sys.isActive()) this.status.setText("Couldn't load the leaderboard");
     }
   }
 
-  private render(entries: readonly LeaderboardEntry[]): void {
+  private showEntries(entries: readonly LeaderboardEntry[]): void {
     if (entries.length === 0) {
-      this.statusText.setText(t("noEntries"));
+      this.status.setText("No winners yet - be the first!");
       return;
     }
-    this.statusText.setText("");
-
-    const myId = getSession().userId;
-    const rows = entries.slice(0, MAX_ROWS);
-    rows.forEach((entry, i) => {
-      const y = LIST_TOP + 30 + i * ROW_H;
-      const mine = entry.userId === myId;
-      const color = mine ? "#ffd166" : COLORS.textLight;
-      const rank = this.add
-        .text(96, y, `#${i + 1}`, { ...TEXT_STYLES.body, color })
-        .setOrigin(0, 0.5);
-      const name = this.add
-        .text(180, y, entry.nickname, { ...TEXT_STYLES.body, color })
-        .setOrigin(0, 0.5);
-      const points = this.add
-        .text(GAME_WIDTH - 96, y, String(entry.winPoints), { ...TEXT_STYLES.body, color })
-        .setOrigin(1, 0.5);
-      this.listContainer.add([rank, name, points]);
+    this.status.setText("");
+    const me = getSession().userId;
+    entries.slice(0, SHOWN).forEach((entry, i) => {
+      const mine = entry.userId === me;
+      const color = mine ? COLOR.goldText : COLOR.white;
+      const parts: Phaser.GameObjects.GameObject[] = [];
+      if (mine) parts.push(panel(this, 0, 0, 620, 78, "card"));
+      const medal = MEDALS[i];
+      if (medal !== undefined) {
+        const disc = this.add.graphics();
+        disc.fillStyle(medal, 1).fillCircle(-262, 0, 24);
+        parts.push(disc);
+      }
+      parts.push(
+        this.add
+          .text(-262, 0, String(i + 1), {
+            ...TEXT.heading,
+            color: medal === undefined ? COLOR.white : "#3b2a05",
+          })
+          .setOrigin(0.5),
+        avatar(this, -190, 0, entry.nickname, entry.userId, 56),
+        this.add
+          .text(-146, 0, shortName(entry.nickname, 14), { ...TEXT.body, color })
+          .setOrigin(0, 0.5),
+        this.add.image(212, 0, "icon-trophy").setDisplaySize(36, 36),
+        this.add
+          .text(290, 0, String(entry.winPoints), { ...TEXT.heading, color })
+          .setOrigin(1, 0.5),
+      );
+      this.add.container(GAME_WIDTH / 2, FIRST_ROW_Y + i * ROW_HEIGHT, parts);
     });
   }
 }

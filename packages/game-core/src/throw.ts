@@ -3,7 +3,10 @@ import type { GameConfig } from "./config.js";
 import type { Rng } from "./rng.js";
 import type { Guti, Side, Vec2 } from "./types.js";
 
-export type ThrowConfig = Pick<GameConfig, "pFlat" | "fieldWidth" | "fieldHeight" | "minSpacing">;
+export type ThrowConfig = Pick<
+  GameConfig,
+  "pFlat" | "fieldWidth" | "fieldHeight" | "minSpacing" | "gutiRadius"
+>;
 
 const MAX_PLACEMENT_ATTEMPTS = 100;
 
@@ -19,9 +22,11 @@ export function throwGutis(rng: Rng, config: ThrowConfig): Guti[] {
 }
 
 function scatter(rng: Rng, config: ThrowConfig, placed: readonly Guti[]): Vec2 {
+  const r = config.gutiRadius;
   for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
-    const x = rng.next() * config.fieldWidth;
-    const y = rng.next() * config.fieldHeight;
+    // The whole guti lands on the mat, not just its centre.
+    const x = r + rng.next() * (config.fieldWidth - 2 * r);
+    const y = r + rng.next() * (config.fieldHeight - 2 * r);
     if (placed.every((g) => Math.hypot(g.x - x, g.y - y) >= config.minSpacing)) {
       return { x, y };
     }

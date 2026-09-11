@@ -1,9 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema.js";
-import type { Database } from "./types.js";
 
-export function createDb(connectionString: string): Database {
+/** The concrete node-postgres client (still a Database); the migrator needs this exact type. */
+export function createDb(connectionString: string): NodePgDatabase<typeof schema> {
   const pool = new Pool({ connectionString });
   return drizzle(pool, { schema });
 }

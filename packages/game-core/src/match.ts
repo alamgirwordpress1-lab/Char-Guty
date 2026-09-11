@@ -1,5 +1,5 @@
 import type { GameConfig } from "./config.js";
-import { resolveThrow, tokkaPairs } from "./resolve.js";
+import { resolveThrow } from "./resolve.js";
 import type { Rng } from "./rng.js";
 import { throwGutis } from "./throw.js";
 import { simulateTokka } from "./tokka.js";
@@ -8,14 +8,14 @@ import type { Guti, ThrowOutcome, ThrowResult } from "./types.js";
 
 export type MatchPhase = "THROW" | "TOKKA" | "ENDED";
 export type TurnEnd = "SCORED" | "DIE" | "TIMEOUT" | "WIN";
-export type TokkaPair = readonly [number, number];
 
 export interface TokkaRecord {
   readonly shooterId: number;
-  readonly targetId: number;
-  readonly hit: boolean;
+  /** The guti the shooter touched first, or null for a miss. */
+  readonly hitId: number | null;
 }
 
+/** One throw and the tokkas that follow it; a player's turn runs through as many as they land. */
 export interface TurnInProgress {
   readonly player: string;
   readonly outcome: ThrowOutcome | null;
@@ -35,9 +35,9 @@ export interface MatchState {
   readonly phase: MatchPhase;
   readonly currentPlayer: string;
   readonly scores: Readonly<Record<string, number>>;
+  /** The gutis still on the mat: the two that meet in a tokka go out. */
   readonly gutis: readonly Guti[];
-  /** Distance-eligible pairs for the next flick; recomputed after every tokka. */
-  readonly pendingTokkas: readonly TokkaPair[];
+  /** Tokkas still owed this throw: any guti may be flicked, and touching any other scores. */
   readonly tokkasLeft: number;
   readonly turn: TurnInProgress | null;
   readonly turnLog: readonly TurnRecord[];
@@ -50,8 +50,7 @@ export type MatchEvent =
       readonly type: "TOKKA";
       readonly player: string;
       readonly shooterId: number;
-      readonly targetId: number;
-      readonly hit: boolean;
+      readonly hitId: number | null;
     }
   | {
       readonly type: "SCORE";
@@ -61,6 +60,7 @@ export type MatchEvent =
     }
   | { readonly type: "DIE"; readonly player: string; readonly reason: "TOKKA_MISS" | "TIMEOUT" }
   | { readonly type: "WIN"; readonly player: string; readonly reason: "ZERO_FLAT" | "REACHED_POT" }
+  /** Whose throw is next - the same player again after a throw that scored. */
   | { readonly type: "TURN"; readonly player: string };
 
 export interface ActionResult {
@@ -70,7 +70,6 @@ export interface ActionResult {
 
 export interface TokkaInput {
   readonly shooterId: number;
-  readonly targetId: number;
   readonly flick: Flick;
 }
 
@@ -121,9 +120,9 @@ export function createMatchState(
   players: readonly string[],
   pot: number,
   config: GameConfig,
+  firstPlayer?: string,
 ): MatchState {
-  const first = players[0];
-  if (first === undefined || players.length < 2 || players.length > 4) {
+  if (players.length < 2 || players.length > 4) {
     throw new InvalidMatchConfigError(`need 2-4 players, got ${players.length}`);
   }
   if (new Set(players).size !== players.length) {
@@ -137,6 +136,10 @@ export function createMatchState(
       `pot ${pot} does not divide evenly by ${players.length} players`,
     );
   }
+  const first = firstPlayer ?? players[0];
+  if (first === undefined || !players.includes(first)) {
+    throw new InvalidMatchConfigError(`first player ${String(first)} is not in this match`);
+  }
   const scores: Record<string, number> = {};
   for (const player of players) scores[player] = 0;
   return {
@@ -147,7 +150,6 @@ export function createMatchState(
     currentPlayer: first,
     scores,
     gutis: [],
-    pendingTokkas: [],
     tokkasLeft: 0,
     turn: startTurn(first),
     turnLog: [],
@@ -174,61 +176,52 @@ export function reduceThrow(state: MatchState, rng: Rng, config: GameConfig): Ac
       events.push({ type: "WIN", player, reason: "REACHED_POT" });
       return { state: finishMatch(scored.state, scored.turn), events };
     }
-    return { state: passTurn(scored.state, scored.turn, "SCORED", events), events };
+    return { state: throwAgain(scored.state, scored.turn, events), events };
   }
 
-  const pendingTokkas = tokkaPairs(gutis, config.tokkaRadius);
-  if (pendingTokkas.length === 0) {
-    return { state: passTurn(base, thrown, "SCORED", events), events };
-  }
   return {
-    state: {
-      ...base,
-      phase: "TOKKA",
-      pendingTokkas,
-      tokkasLeft: result.requiredTokkas,
-      turn: thrown,
-    },
+    state: { ...base, phase: "TOKKA", tokkasLeft: result.requiredTokkas, turn: thrown },
     events,
   };
 }
 
 export function reduceTokka(
   state: MatchState,
-  { shooterId, targetId, flick }: TokkaInput,
+  { shooterId, flick }: TokkaInput,
   config: GameConfig,
 ): ActionResult {
   const turn = activeTurn(state, "tokka", ["TOKKA"]);
-  if (!isPending(state.pendingTokkas, shooterId, targetId)) {
-    throw new InvalidActionError(
-      `gutis ${shooterId} and ${targetId} are not an eligible tokka pair`,
-    );
+  if (!state.gutis.some((g) => g.id === shooterId)) {
+    throw new InvalidActionError(`guti ${shooterId} is not on the board`);
   }
   const player = state.currentPlayer;
-  const sim = simulateTokka(state.gutis, shooterId, targetId, flick, config);
-  const events: MatchEvent[] = [{ type: "TOKKA", player, shooterId, targetId, hit: sim.hit }];
+  const sim = simulateTokka(state.gutis, shooterId, flick, config);
+  const events: MatchEvent[] = [{ type: "TOKKA", player, shooterId, hitId: sim.hitId }];
   const attempted: TurnInProgress = {
     ...turn,
-    tokkas: [...turn.tokkas, { shooterId, targetId, hit: sim.hit }],
+    tokkas: [...turn.tokkas, { shooterId, hitId: sim.hitId }],
   };
-  const base: MatchState = { ...state, gutis: sim.finalGutis };
 
-  if (!sim.hit) {
+  if (sim.hitId === null) {
     events.push({ type: "DIE", player, reason: "TOKKA_MISS" });
-    return { state: passTurn(base, attempted, "DIE", events), events };
+    return {
+      state: passTurn({ ...state, gutis: sim.finalGutis }, attempted, "DIE", events),
+      events,
+    };
   }
 
-  const scored = addPoints(base, attempted, 1, events);
+  const hitId = sim.hitId;
+  const left = sim.finalGutis.filter((g) => g.id !== shooterId && g.id !== hitId);
+  const scored = addPoints({ ...state, gutis: left }, attempted, 1, events);
   if (hasReachedPot(scored.state)) {
     events.push({ type: "WIN", player, reason: "REACHED_POT" });
     return { state: finishMatch(scored.state, scored.turn), events };
   }
   const tokkasLeft = state.tokkasLeft - 1;
-  const pendingTokkas = tokkaPairs(sim.finalGutis, config.tokkaRadius);
-  if (tokkasLeft === 0 || pendingTokkas.length === 0) {
-    return { state: passTurn(scored.state, scored.turn, "SCORED", events), events };
+  if (tokkasLeft === 0) {
+    return { state: throwAgain(scored.state, scored.turn, events), events };
   }
-  return { state: { ...scored.state, pendingTokkas, tokkasLeft, turn: scored.turn }, events };
+  return { state: { ...scored.state, tokkasLeft, turn: scored.turn }, events };
 }
 
 export function reduceTimeout(state: MatchState): ActionResult {
@@ -261,12 +254,6 @@ function activeTurn(
   return state.turn;
 }
 
-function isPending(pairs: readonly TokkaPair[], shooterId: number, targetId: number): boolean {
-  return pairs.some(
-    ([a, b]) => (a === shooterId && b === targetId) || (a === targetId && b === shooterId),
-  );
-}
-
 function addPoints(
   state: MatchState,
   turn: TurnInProgress,
@@ -286,10 +273,22 @@ function hasReachedPot(state: MatchState): boolean {
   return (state.scores[state.currentPlayer] ?? 0) >= state.pot;
 }
 
+/** A turn lasts until a tokka is missed: after a throw that scored, the same player goes again. */
+function throwAgain(state: MatchState, turn: TurnInProgress, events: MatchEvent[]): MatchState {
+  events.push({ type: "TURN", player: state.currentPlayer });
+  return {
+    ...state,
+    phase: "THROW",
+    tokkasLeft: 0,
+    turn: startTurn(state.currentPlayer),
+    turnLog: [...state.turnLog, { ...turn, end: "SCORED" }],
+  };
+}
+
 function passTurn(
   state: MatchState,
   turn: TurnInProgress,
-  end: Exclude<TurnEnd, "WIN">,
+  end: Exclude<TurnEnd, "WIN" | "SCORED">,
   events: MatchEvent[],
 ): MatchState {
   const index = state.players.indexOf(state.currentPlayer);
@@ -299,7 +298,6 @@ function passTurn(
     ...state,
     phase: "THROW",
     currentPlayer: next,
-    pendingTokkas: [],
     tokkasLeft: 0,
     turn: startTurn(next),
     turnLog: [...state.turnLog, { ...turn, end }],
@@ -311,7 +309,6 @@ function finishMatch(state: MatchState, turn: TurnInProgress): MatchState {
     ...state,
     phase: "ENDED",
     winner: state.currentPlayer,
-    pendingTokkas: [],
     tokkasLeft: 0,
     turn: null,
     turnLog: [...state.turnLog, { ...turn, end: "WIN" }],

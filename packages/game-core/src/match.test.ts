@@ -9,7 +9,6 @@ import {
   settle,
 } from "./match.js";
 import type { Match, MatchState } from "./match.js";
-import { tokkaPairs } from "./resolve.js";
 import { SeededRng } from "./rng.js";
 import type { Rng } from "./rng.js";
 import type { Guti } from "./types.js";
@@ -18,7 +17,10 @@ const config = DEFAULT_CONFIG;
 const FLAT = 0.1; // below pFlat
 const ROUND = 0.99; // at or above pFlat
 
-/** Scripted draws per guti: [side, x, y]; the four landing spots are all > 80px apart. */
+/**
+ * Scripted draws per guti: [side, x, y]. Lands at about (50,40) (200,150) (350,40) (88,232):
+ * no two gutis closer than 135px.
+ */
 function scriptedRng(sides: readonly [number, number, number, number]): Rng {
   const draws = [sides[0], 0.1, 0.1, sides[1], 0.5, 0.5, sides[2], 0.9, 0.1, sides[3], 0.2, 0.8];
   let i = 0;
@@ -31,10 +33,10 @@ function scriptedRng(sides: readonly [number, number, number, number]): Rng {
   };
 }
 
-const at = (id: number, x: number, y = 0): Guti => ({ id, side: "F", x, y });
+const at = (id: number, x: number, y: number): Guti => ({ id, side: "F", x, y });
 
-/** Board with two eligible pairs: 0-1 (60px apart) and 2-3 (40px apart), far from each other. */
-const twoPairs: Guti[] = [at(0, 0), at(1, 60), at(2, 300, 200), at(3, 340, 200)];
+/** 0 and 1 lie sixty px apart; 2 and 3 forty px apart, well away from them. */
+const board: Guti[] = [at(0, 40, 150), at(1, 100, 150), at(2, 300, 60), at(3, 340, 60)];
 
 function tokkaState(players: string[], gutis: Guti[], tokkasLeft = 2): MatchState {
   const base = createMatchState(players, 100, config);
@@ -42,25 +44,23 @@ function tokkaState(players: string[], gutis: Guti[], tokkasLeft = 2): MatchStat
     ...base,
     phase: "TOKKA",
     gutis,
-    pendingTokkas: tokkaPairs(gutis, config.tokkaRadius),
     tokkasLeft,
     turn: { player: base.currentPlayer, outcome: "tokka", flatCount: 2, points: 0, tokkas: [] },
   };
 }
 
-const aimAt = (dx: number) => ({ dx, dy: 0, power: 300 });
+const aimAt = (dx: number, power = 300) => ({ dx, dy: 0, power });
 
-function playFirstPendingTokka(match: Match) {
-  const pair = match.state.pendingTokkas[0];
-  if (pair === undefined) throw new Error("no pending tokka");
-  const [shooterId, targetId] = pair;
-  const shooter = match.state.gutis.find((g) => g.id === shooterId);
-  const target = match.state.gutis.find((g) => g.id === targetId);
-  if (shooter === undefined || target === undefined) throw new Error("missing guti");
+/** Flicks the first guti left on the mat straight at its nearest neighbour, hard enough to reach. */
+function playNearestTokka(match: Match) {
+  const [shooter, ...others] = match.state.gutis;
+  if (shooter === undefined) throw new Error("no gutis on the board");
+  const distance = (g: Guti) => Math.hypot(g.x - shooter.x, g.y - shooter.y);
+  const target = others.reduce((best, g) => (distance(g) < distance(best) ? g : best));
+  const power = Math.sqrt(2 * config.friction * distance(target)) * 1.3;
   return match.tokka({
-    shooterId,
-    targetId,
-    flick: { dx: target.x - shooter.x, dy: target.y - shooter.y, power: 300 },
+    shooterId: shooter.id,
+    flick: { dx: target.x - shooter.x, dy: target.y - shooter.y, power },
   });
 }
 
@@ -76,6 +76,13 @@ describe("createMatch", () => {
     expect(() => createMatch({ players: ["a"], pot: 100, rng, config })).toThrow(
       InvalidMatchConfigError,
     );
+  });
+
+  it("starts with the given first player when one is passed, and rejects an unseated one", () => {
+    const state = createMatchState(["a", "b", "c"], 300, config, "c");
+    expect(state.currentPlayer).toBe("c");
+    expect(state.turn?.player).toBe("c");
+    expect(() => createMatchState(["a", "b"], 100, config, "z")).toThrow(InvalidMatchConfigError);
   });
 
   it("charges stake = pot / players and starts with the first player throwing", () => {
@@ -115,7 +122,7 @@ describe("throw", () => {
     });
   });
 
-  it("4F scores 4 and passes the turn", () => {
+  it("4F scores 4 and the same player throws again", () => {
     const match = createMatch({
       players: ["a", "b"],
       pot: 100,
@@ -125,8 +132,9 @@ describe("throw", () => {
     const { state, events } = match.throw();
     expect(events.map((e) => e.type)).toEqual(["THROW", "SCORE", "TURN"]);
     expect(events[1]).toEqual({ type: "SCORE", player: "a", points: 4, total: 4 });
+    expect(events[2]).toEqual({ type: "TURN", player: "a" });
     expect(state.scores).toEqual({ a: 4, b: 0 });
-    expect(state.currentPlayer).toBe("b");
+    expect(state.currentPlayer).toBe("a");
     expect(state.phase).toBe("THROW");
     expect(state.turnLog.at(-1)).toMatchObject({
       player: "a",
@@ -136,18 +144,18 @@ describe("throw", () => {
     });
   });
 
-  it("a tokka outcome with no eligible pairs passes the turn with 0 points", () => {
+  it("3F opens two tokkas, however far apart the gutis landed", () => {
     const match = createMatch({
       players: ["a", "b"],
       pot: 100,
-      rng: scriptedRng([FLAT, FLAT, ROUND, ROUND]),
+      rng: scriptedRng([FLAT, FLAT, FLAT, ROUND]),
       config,
     });
     const { state, events } = match.throw();
-    expect(events.map((e) => e.type)).toEqual(["THROW", "TURN"]);
-    expect(state.scores).toEqual({ a: 0, b: 0 });
-    expect(state.currentPlayer).toBe("b");
-    expect(state.turnLog.at(-1)).toMatchObject({ outcome: "tokka", points: 0, end: "SCORED" });
+    expect(events.map((e) => e.type)).toEqual(["THROW"]);
+    expect(state.phase).toBe("TOKKA");
+    expect(state.currentPlayer).toBe("a");
+    expect(state.tokkasLeft).toBe(2);
   });
 });
 
@@ -165,36 +173,70 @@ describe("die", () => {
     expect(match.state.turnLog.every((t) => t.end === "TIMEOUT")).toBe(true);
   });
 
-  it("a missed tokka is a DIE that passes the turn", () => {
-    const state = tokkaState(["a", "b"], twoPairs);
-    const { state: next, events } = reduceTokka(
-      state,
-      { shooterId: 0, targetId: 1, flick: aimAt(-1) },
+  it("a tokka that touches no guti is a DIE that passes the turn", () => {
+    const { state, events } = reduceTokka(
+      tokkaState(["a", "b"], board),
+      { shooterId: 0, flick: aimAt(-1) },
       config,
     );
     expect(events.map((e) => e.type)).toEqual(["TOKKA", "DIE", "TURN"]);
-    expect(next.scores).toEqual({ a: 0, b: 0 });
-    expect(next.currentPlayer).toBe("b");
-    expect(next.phase).toBe("THROW");
+    expect(state.scores).toEqual({ a: 0, b: 0 });
+    expect(state.currentPlayer).toBe("b");
+    expect(state.phase).toBe("THROW");
   });
 });
 
 describe("tokka", () => {
-  it("keeps points from completed tokkas when a later tokka in the same turn fails", () => {
-    const state = tokkaState(["a", "b"], twoPairs);
-    expect(state.pendingTokkas).toEqual([
-      [0, 1],
-      [2, 3],
+  it("scores for touching any guti, and both gutis that met go out", () => {
+    const { state, events } = reduceTokka(
+      tokkaState(["a", "b"], board),
+      { shooterId: 1, flick: aimAt(-1) },
+      config,
+    );
+    expect(events).toEqual([
+      { type: "TOKKA", player: "a", shooterId: 1, hitId: 0 },
+      { type: "SCORE", player: "a", points: 1, total: 1 },
     ]);
+    expect(state.gutis.map((g) => g.id)).toEqual([2, 3]);
+    expect(state.phase).toBe("TOKKA");
+    expect(state.tokkasLeft).toBe(1);
+  });
 
-    const first = reduceTokka(state, { shooterId: 0, targetId: 1, flick: aimAt(1) }, config);
-    expect(first.events).toContainEqual({ type: "SCORE", player: "a", points: 1, total: 1 });
-    expect(first.state.phase).toBe("TOKKA");
-    expect(first.state.tokkasLeft).toBe(1);
+  it("won't let a guti that went out be flicked again", () => {
+    const first = reduceTokka(
+      tokkaState(["a", "b"], board),
+      { shooterId: 1, flick: aimAt(-1) },
+      config,
+    );
+    expect(() => reduceTokka(first.state, { shooterId: 0, flick: aimAt(1) }, config)).toThrow(
+      InvalidActionError,
+    );
+  });
 
+  it("landing the second tokka on the two left scores again, and the same player throws again", () => {
+    const first = reduceTokka(
+      tokkaState(["a", "b"], board),
+      { shooterId: 1, flick: aimAt(-1) },
+      config,
+    );
+    const second = reduceTokka(first.state, { shooterId: 2, flick: aimAt(1) }, config);
+    expect(second.events.map((e) => e.type)).toEqual(["TOKKA", "SCORE", "TURN"]);
+    expect(second.state.scores).toEqual({ a: 2, b: 0 });
+    expect(second.state.gutis).toEqual([]);
+    expect(second.state.phase).toBe("THROW");
+    expect(second.state.currentPlayer).toBe("a");
+    expect(second.state.turnLog.at(-1)).toMatchObject({ player: "a", points: 2, end: "SCORED" });
+  });
+
+  it("keeps points from a completed tokka when the next one misses", () => {
+    const first = reduceTokka(
+      tokkaState(["a", "b"], board),
+      { shooterId: 0, flick: aimAt(1) },
+      config,
+    );
     const second = reduceTokka(
       first.state,
-      { shooterId: 2, targetId: 3, flick: aimAt(-1) },
+      { shooterId: 2, flick: { dx: 0, dy: 1, power: 300 } },
       config,
     );
     expect(second.events.map((e) => e.type)).toEqual(["TOKKA", "DIE", "TURN"]);
@@ -205,47 +247,28 @@ describe("tokka", () => {
       points: 1,
       end: "DIE",
       tokkas: [
-        { shooterId: 0, targetId: 1, hit: true },
-        { shooterId: 2, targetId: 3, hit: false },
+        { shooterId: 0, hitId: 1 },
+        { shooterId: 2, hitId: null },
       ],
     });
   });
 
-  it("two successful tokkas score 2 and end the turn", () => {
-    const first = reduceTokka(
-      tokkaState(["a", "b"], twoPairs),
-      { shooterId: 0, targetId: 1, flick: aimAt(1) },
-      config,
-    );
-    const second = reduceTokka(first.state, { shooterId: 2, targetId: 3, flick: aimAt(1) }, config);
-    expect(second.events.map((e) => e.type)).toEqual(["TOKKA", "SCORE", "TURN"]);
-    expect(second.state.scores).toEqual({ a: 2, b: 0 });
-    expect(second.state.phase).toBe("THROW");
-    expect(second.state.currentPlayer).toBe("b");
-  });
-
   it("reaching the pot wins even with tokkas left", () => {
-    const state = { ...tokkaState(["a", "b"], twoPairs), scores: { a: 99, b: 0 } };
-    const { state: next, events } = reduceTokka(
-      state,
-      { shooterId: 0, targetId: 1, flick: aimAt(1) },
-      config,
-    );
+    const state = { ...tokkaState(["a", "b"], board), scores: { a: 99, b: 0 } };
+    const { state: next, events } = reduceTokka(state, { shooterId: 0, flick: aimAt(1) }, config);
     expect(events.map((e) => e.type)).toEqual(["TOKKA", "SCORE", "WIN"]);
     expect(next.phase).toBe("ENDED");
     expect(next.winner).toBe("a");
     expect(settle(next).deltas).toEqual({ a: 50, b: -50 });
   });
 
-  it("rejects a tokka outside the TOKKA phase or on a non-eligible pair", () => {
+  it("rejects a tokka outside the TOKKA phase, or with a guti that isn't on the board", () => {
     const match = createMatch({ players: ["a", "b"], pot: 100, rng: new SeededRng(1), config });
-    expect(() => match.tokka({ shooterId: 0, targetId: 1, flick: aimAt(1) })).toThrow(
+    expect(() => match.tokka({ shooterId: 0, flick: aimAt(1) })).toThrow(InvalidActionError);
+    const withoutGuti3 = tokkaState(["a", "b"], board.slice(0, 3));
+    expect(() => reduceTokka(withoutGuti3, { shooterId: 3, flick: aimAt(1) }, config)).toThrow(
       InvalidActionError,
     );
-    const state = tokkaState(["a", "b"], twoPairs);
-    expect(() =>
-      reduceTokka(state, { shooterId: 0, targetId: 2, flick: aimAt(1) }, config),
-    ).toThrow(InvalidActionError);
   });
 });
 
@@ -256,7 +279,7 @@ describe("full game", () => {
     let actions = 0;
     while (match.state.phase !== "ENDED" && actions < 5000) {
       if (match.state.phase === "THROW") match.throw();
-      else playFirstPendingTokka(match);
+      else playNearestTokka(match);
       actions += 1;
     }
 

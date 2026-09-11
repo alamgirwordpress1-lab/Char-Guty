@@ -55,7 +55,7 @@ export const ledger = pgTable("ledger", {
 
 export const matches = pgTable("matches", {
   id: uuid("id").primaryKey().defaultRandom(),
-  mode: text("mode").notNull(), // 'friend' | 'random'
+  mode: text("mode").notNull(), // 'friend' | 'random' | 'computer'
   pot: integer("pot").notNull(),
   playerCount: integer("player_count").notNull(),
   players: jsonb("players").notNull().$type<string[]>(),

@@ -39,6 +39,12 @@ describe("joinOptionsSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts a vs-computer join with a pot, and rejects one without", () => {
+    const join = { token: "t", nickname: "bob", mode: "computer", playerCount: 2 };
+    expect(joinOptionsSchema.safeParse({ ...join, pot: 100 }).success).toBe(true);
+    expect(joinOptionsSchema.safeParse(join).success).toBe(false);
+  });
+
   it("rejects an empty nickname", () => {
     const result = joinOptionsSchema.safeParse({
       token: "t",
@@ -69,16 +75,14 @@ describe("tokkaPayloadSchema", () => {
   it("accepts a valid tokka payload", () => {
     const result = tokkaPayloadSchema.safeParse({
       shooterId: 0,
-      targetId: 1,
       flick: { dx: 1, dy: 0, power: 300 },
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects a gutiId outside 0-3", () => {
+  it("rejects a shooterId outside 0-3", () => {
     const result = tokkaPayloadSchema.safeParse({
-      shooterId: 0,
-      targetId: 4,
+      shooterId: 4,
       flick: { dx: 1, dy: 0, power: 300 },
     });
     expect(result.success).toBe(false);
@@ -87,7 +91,6 @@ describe("tokkaPayloadSchema", () => {
   it("rejects a negative flick power", () => {
     const result = tokkaPayloadSchema.safeParse({
       shooterId: 0,
-      targetId: 1,
       flick: { dx: 1, dy: 0, power: -1 },
     });
     expect(result.success).toBe(false);
@@ -101,6 +104,16 @@ describe("matchEventSchema", () => {
 
   it("accepts a WIN event", () => {
     const result = matchEventSchema.safeParse({ type: "WIN", player: "a", reason: "REACHED_POT" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a TOKKA event that touched nothing", () => {
+    const result = matchEventSchema.safeParse({
+      type: "TOKKA",
+      player: "a",
+      shooterId: 2,
+      hitId: null,
+    });
     expect(result.success).toBe(true);
   });
 
@@ -119,7 +132,6 @@ describe("matchStateSchema", () => {
       currentPlayer: "a",
       scores: { a: 0, b: 0 },
       gutis: [],
-      pendingTokkas: [],
       tokkasLeft: 0,
       turn: { player: "a", outcome: null, flatCount: null, points: 0, tokkas: [] },
       turnLog: [],

@@ -1,13 +1,4 @@
-import { type FirebaseApp, initializeApp } from "firebase/app";
-import {
-  type Auth,
-  FacebookAuthProvider,
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  type User,
-} from "firebase/auth";
+import type { Auth, User } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -21,13 +12,27 @@ export interface FirebaseSession {
   readonly nickname: string;
 }
 
-let app: FirebaseApp | undefined;
-let auth: Auth | undefined;
+/** Google/Facebook sign-in needs the Firebase web config in apps/game/.env (see .env.example). */
+export function isFirebaseConfigured(): boolean {
+  return Object.values(firebaseConfig).every((value) => typeof value === "string" && value !== "");
+}
 
-function firebaseAuth(): Auth {
-  app ??= initializeApp(firebaseConfig);
-  auth ??= getAuth(app);
-  return auth;
+// firebase/app + firebase/auth are a meaningful chunk of the bundle and most players
+// never touch Google/Facebook sign-in (Guest doesn't need Firebase at all), so both
+// are dynamically imported here instead of at module load - only fetched on first use.
+type AuthModule = typeof import("firebase/auth");
+let loaded: Promise<{ auth: Auth; mod: AuthModule }> | undefined;
+
+function loadFirebaseAuth(): Promise<{ auth: Auth; mod: AuthModule }> {
+  loaded ??= (async () => {
+    const [{ initializeApp }, mod] = await Promise.all([
+      import("firebase/app"),
+      import("firebase/auth"),
+    ]);
+    const auth = mod.getAuth(initializeApp(firebaseConfig));
+    return { auth, mod };
+  })();
+  return loaded;
 }
 
 async function toSession(user: User): Promise<FirebaseSession> {
@@ -36,15 +41,26 @@ async function toSession(user: User): Promise<FirebaseSession> {
 }
 
 export async function signInWithGoogle(): Promise<FirebaseSession> {
-  const credential = await signInWithPopup(firebaseAuth(), new GoogleAuthProvider());
+  const { auth, mod } = await loadFirebaseAuth();
+  const credential = await mod.signInWithPopup(auth, new mod.GoogleAuthProvider());
   return toSession(credential.user);
 }
 
 export async function signInWithFacebook(): Promise<FirebaseSession> {
-  const credential = await signInWithPopup(firebaseAuth(), new FacebookAuthProvider());
+  const { auth, mod } = await loadFirebaseAuth();
+  const credential = await mod.signInWithPopup(auth, new mod.FacebookAuthProvider());
   return toSession(credential.user);
 }
 
+/** The Google/Facebook user Firebase kept signed in on this device, with a fresh token. */
+export async function currentFirebaseSession(): Promise<FirebaseSession | null> {
+  const { auth } = await loadFirebaseAuth();
+  await auth.authStateReady();
+  return auth.currentUser === null ? null : toSession(auth.currentUser);
+}
+
 export async function signOutFirebase(): Promise<void> {
-  if (auth !== undefined) await firebaseSignOut(auth);
+  if (loaded === undefined) return;
+  const { auth, mod } = await loaded;
+  await mod.signOut(auth);
 }

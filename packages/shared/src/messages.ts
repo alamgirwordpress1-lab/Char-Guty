@@ -12,7 +12,8 @@ const gutiIdSchema = z
 // (Colyseus validates these in onAuth/onCreate; there's no separate "JOIN" room message —
 // joining a room *is* the connection handshake.)
 
-export const roomModeSchema = z.enum(["friend", "random"]);
+/** "computer": a practice game against computer players, picked by the player (like Ludo). */
+export const roomModeSchema = z.enum(["friend", "random", "computer"]);
 
 export const joinOptionsSchema = z
   .object({
@@ -20,13 +21,13 @@ export const joinOptionsSchema = z
     token: z.string().min(1),
     nickname: z.string().min(1).max(20),
     mode: roomModeSchema,
-    /** Seat count; always required so the room knows its capacity upfront. */
+    /** Seat count, computer players included; always required so the room knows its capacity. */
     playerCount: playerCountSchema,
-    /** Required for random matchmaking (used in filterBy); friend hosts may defer via PICK_POT. */
+    /** Required except in friend rooms, whose host may defer it via PICK_POT. */
     pot: potSchema.optional(),
   })
-  .refine((o) => o.mode !== "random" || o.pot !== undefined, {
-    message: "pot is required for random matchmaking",
+  .refine((o) => o.mode === "friend" || o.pot !== undefined, {
+    message: "pot is required unless a friend room's host picks it later",
   });
 
 export type JoinOptions = z.infer<typeof joinOptionsSchema>;
@@ -45,9 +46,9 @@ export const pickPotPayloadSchema = z.object({
   pot: potSchema,
 });
 
+/** Any guti may be flicked; there is no chosen target - whatever it touches first counts. */
 export const tokkaPayloadSchema = z.object({
   shooterId: gutiIdSchema,
-  targetId: gutiIdSchema,
   flick: flickSchema,
 });
 
@@ -83,8 +84,7 @@ export const matchEventSchema = z.discriminatedUnion("type", [
     type: z.literal("TOKKA"),
     player: z.string(),
     shooterId: z.number().int(),
-    targetId: z.number().int(),
-    hit: z.boolean(),
+    hitId: z.number().int().nullable(),
   }),
   z.object({
     type: z.literal("SCORE"),
@@ -107,8 +107,7 @@ export const matchEventSchema = z.discriminatedUnion("type", [
 
 const tokkaRecordSchema = z.object({
   shooterId: z.number().int(),
-  targetId: z.number().int(),
-  hit: z.boolean(),
+  hitId: z.number().int().nullable(),
 });
 
 const turnInProgressSchema = z.object({
@@ -131,7 +130,6 @@ export const matchStateSchema = z.object({
   currentPlayer: z.string(),
   scores: z.record(z.string(), z.number()),
   gutis: z.array(gutiSchema),
-  pendingTokkas: z.array(z.tuple([z.number().int(), z.number().int()])),
   tokkasLeft: z.number().int(),
   turn: turnInProgressSchema.nullable(),
   turnLog: z.array(turnRecordSchema),

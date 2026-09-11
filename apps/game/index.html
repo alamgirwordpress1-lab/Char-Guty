@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="bn">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -9,20 +9,55 @@
       body {
         margin: 0;
         padding: 0;
-        background: #101820;
+        background: #0a173f;
         overscroll-behavior: none;
       }
       #game-container {
+        position: relative;
         width: 100vw;
         height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
       }
+      /* Plain CSS, shown instantly (no JS/bundle needed) while the game's own JS
+         downloads and Phaser boots. Removed by BootScene once it starts drawing. */
+      #boot-loader {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+      }
+      #boot-loader .spinner {
+        width: 44px;
+        height: 44px;
+        border: 4px solid #1a3f94;
+        border-top-color: #ffd166;
+        border-radius: 50%;
+        animation: boot-spin 0.8s linear infinite;
+      }
+      #boot-loader .boot-text {
+        font-family: "Segoe UI", sans-serif;
+        font-size: 16px;
+        color: #b9c6e4;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
-    <div id="game-container"></div>
+    <div id="game-container">
+      <div id="boot-loader">
+        <div class="spinner"></div>
+        <div class="boot-text">Loading...</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

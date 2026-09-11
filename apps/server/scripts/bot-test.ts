@@ -1,26 +1,27 @@
 /**
- * Fetches 2 guest tokens over HTTP, connects both bots to a live server, plays a
- * full random-matchmaking game to completion by always throwing/flicking on its
- * turn, and prints the winner.
+ * End-to-end checks against a live server:
+ * 1. Two bots fetch guest tokens, meet in random matchmaking and play a full game by
+ *    always acting on their turn; the room then deals the next game by itself, scores
+ *    reset to 0 and the first throw passed to the next seat.
+ * 2. A bot opens a vs-computer game: it starts at once against a computer player, takes
+ *    no stake, and the computer plays a turn of its own.
  *
  * Usage: SERVER_URL=ws://localhost:2567 tsx scripts/bot-test.ts
  * (the server must already be running - see src/index.ts)
  */
-import { DEFAULT_CONFIG } from "@char-guty/game-core";
-import type { Guti, MatchState } from "@char-guty/game-core";
+import type { MatchState } from "@char-guty/game-core";
 import { Client, Room } from "colyseus.js";
+import { chooseComputerTokka } from "../src/rooms/computerPlayer.js";
 
 interface RoomStateMsg {
-  readonly mode: string;
-  readonly code: string | null;
   readonly roomPhase: "LOBBY" | "PLAYING" | "ENDED";
-  readonly hostUserId: string | null;
-  readonly seats: readonly { sessionId: string; userId: string; nickname: string }[];
+  readonly seats: readonly { userId: string; isComputer: boolean }[];
   readonly match: MatchState | null;
 }
 
 interface MatchEndedMsg {
   readonly winner: string | null;
+  readonly nextRoundInMs: number;
 }
 
 interface GuestAuth {
@@ -32,7 +33,10 @@ const WS_ENDPOINT = process.env.SERVER_URL ?? "ws://localhost:2567";
 const HTTP_ENDPOINT = WS_ENDPOINT.replace(/^ws/, "http");
 const POT = 100;
 const PLAYER_COUNT = 2;
-const TIMEOUT_MS = 60_000;
+const MATCH_TIMEOUT_MS = 60_000;
+const NEXT_GAME_GRACE_MS = 10_000;
+const COMPUTER_GAME_START_MS = 5_000;
+const DEAD_ON = { next: () => 0.5 };
 
 async function fetchGuestToken(nickname: string): Promise<GuestAuth> {
   const res = await fetch(`${HTTP_ENDPOINT}/auth/guest`, {
@@ -45,37 +49,18 @@ async function fetchGuestToken(nickname: string): Promise<GuestAuth> {
   return { userId: body.userId, token: body.token };
 }
 
-function findGuti(gutis: readonly Guti[], id: number): Guti {
-  const guti = gutis.find((g) => g.id === id);
-  if (guti === undefined) throw new Error(`guti ${id} not found in state`);
-  return guti;
+async function fetchCoins(token: string): Promise<number> {
+  const res = await fetch(`${HTTP_ENDPOINT}/me`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`wallet fetch failed: ${res.status}`);
+  return ((await res.json()) as { coins: number }).coins;
 }
 
 function actAsBot(room: Room, name: string, myUserId: string): void {
   room.onMessage<RoomStateMsg>("state", (state) => {
     const match = state.match;
-    if (match === null || match.phase === "ENDED") return;
-    if (match.currentPlayer !== myUserId) return;
-
-    if (match.phase === "THROW") {
-      room.send("THROW");
-      return;
-    }
-
-    const pair = match.pendingTokkas[0];
-    if (pair === undefined) return;
-    const [shooterId, targetId] = pair;
-    const shooter = findGuti(match.gutis, shooterId);
-    const target = findGuti(match.gutis, targetId);
-    room.send("TOKKA", {
-      shooterId,
-      targetId,
-      flick: {
-        dx: target.x - shooter.x,
-        dy: target.y - shooter.y,
-        power: DEFAULT_CONFIG.maxFlickPower / 2,
-      },
-    });
+    if (match === null || match.currentPlayer !== myUserId) return;
+    if (match.phase === "THROW") room.send("THROW");
+    else if (match.phase === "TOKKA") room.send("TOKKA", chooseComputerTokka(match.gutis, DEAD_ON));
   });
 
   room.onMessage<{ message: string }>("error", (payload) => {
@@ -91,50 +76,106 @@ function waitForMatchEnd(room: Room): Promise<MatchEndedMsg> {
   });
 }
 
-async function main(): Promise<void> {
+function waitForState(
+  room: Room,
+  predicate: (state: RoomStateMsg) => boolean,
+): Promise<RoomStateMsg> {
+  return new Promise((resolve) => {
+    room.onMessage<RoomStateMsg>("state", (state) => {
+      if (predicate(state)) resolve(state);
+    });
+  });
+}
+
+function rejectAfter(ms: number, what: string): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`${what} within ${ms}ms`)), ms);
+  });
+}
+
+async function twoBotsPlayAGame(): Promise<void> {
   console.log(`Fetching guest tokens from ${HTTP_ENDPOINT} ...`);
   const bot1Auth = await fetchGuestToken("bot-1");
   const bot2Auth = await fetchGuestToken("bot-2");
-  console.log(`bot-1 guest userId ${bot1Auth.userId}`);
-  console.log(`bot-2 guest userId ${bot2Auth.userId}`);
 
   console.log(`Connecting 2 bots to ${WS_ENDPOINT} ...`);
   const joinOptions = { mode: "random" as const, playerCount: PLAYER_COUNT, pot: POT };
 
-  const client1 = new Client(WS_ENDPOINT);
-  const room1 = await client1.joinOrCreate("guti", {
+  const room1 = await new Client(WS_ENDPOINT).joinOrCreate("guti", {
     ...joinOptions,
     token: bot1Auth.token,
     nickname: "bot-1",
   });
-  console.log(`bot-1 joined room ${room1.roomId} as ${room1.sessionId}`);
   actAsBot(room1, "bot-1", bot1Auth.userId); // registered before bot-2 joins, so no broadcast is missed
 
-  const client2 = new Client(WS_ENDPOINT);
-  const room2 = await client2.joinOrCreate("guti", {
+  const room2 = await new Client(WS_ENDPOINT).joinOrCreate("guti", {
     ...joinOptions,
     token: bot2Auth.token,
     nickname: "bot-2",
   });
-  console.log(`bot-2 joined room ${room2.roomId} as ${room2.sessionId}`);
   actAsBot(room2, "bot-2", bot2Auth.userId);
 
   if (room1.roomId !== room2.roomId) {
     throw new Error(`bots landed in different rooms: ${room1.roomId} vs ${room2.roomId}`);
   }
 
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`match did not finish within ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
-  });
-  const { winner } = await Promise.race([waitForMatchEnd(room1), timeout]);
+  const ended = await Promise.race([
+    waitForMatchEnd(room1),
+    rejectAfter(MATCH_TIMEOUT_MS, "match did not finish"),
+  ]);
+  console.log(`Winner: ${ended.winner} (next game in ${ended.nextRoundInMs}ms)`);
 
-  console.log(`Winner: ${winner}`);
+  const { match: next } = await Promise.race([
+    waitForState(room1, (s) => s.roomPhase === "PLAYING" && s.match?.turnLog.length === 0),
+    rejectAfter(ended.nextRoundInMs + NEXT_GAME_GRACE_MS, "next game did not start"),
+  ]);
+  if (next === null) throw new Error("next game has no match state");
+  if (Object.values(next.scores).some((score) => score !== 0)) {
+    throw new Error(`next game did not reset scores: ${JSON.stringify(next.scores)}`);
+  }
+  if (next.currentPlayer !== next.players[1]) {
+    throw new Error(`first throw did not pass to the next seat: ${next.currentPlayer}`);
+  }
+  console.log(`Next game dealt: scores reset to 0, ${next.currentPlayer} throws first`);
 
   await room1.leave();
   await room2.leave();
 }
 
-main()
+async function botPlaysTheComputer(): Promise<void> {
+  const auth = await fetchGuestToken("bot-solo");
+  const coinsBefore = await fetchCoins(auth.token);
+  const room = await new Client(WS_ENDPOINT).create("guti", {
+    mode: "computer",
+    playerCount: PLAYER_COUNT,
+    pot: POT,
+    token: auth.token,
+    nickname: "bot-solo",
+  });
+  const started = waitForState(room, (s) => s.roomPhase === "PLAYING");
+  actAsBot(room, "bot-solo", auth.userId);
+
+  const state = await Promise.race([
+    started,
+    rejectAfter(COMPUTER_GAME_START_MS, "vs-computer game did not start"),
+  ]);
+  const computer = state.seats.find((seat) => seat.isComputer);
+  if (computer === undefined) throw new Error("no computer player was seated");
+  if ((await fetchCoins(auth.token)) !== coinsBefore) {
+    throw new Error("a vs-computer game took a stake");
+  }
+  console.log("Vs-computer game started at once, with nothing staked");
+
+  await Promise.race([
+    waitForState(room, (s) => s.match?.turnLog.some((t) => t.player === computer.userId) ?? false),
+    rejectAfter(MATCH_TIMEOUT_MS, "computer player never finished a turn"),
+  ]);
+  console.log("Computer player finished a turn of its own");
+  await room.leave();
+}
+
+twoBotsPlayAGame()
+  .then(botPlaysTheComputer)
   .then(() => process.exit(0))
   .catch((err: unknown) => {
     console.error(err);

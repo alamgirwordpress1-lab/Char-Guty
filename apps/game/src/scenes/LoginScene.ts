@@ -1,62 +1,88 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
-import { t } from "../i18n/index.js";
-import { signInWithFacebook, signInWithGoogle } from "../services/auth.js";
+import { isFirebaseConfigured, signInWithFacebook, signInWithGoogle } from "../services/auth.js";
 import { fetchGuestToken, fetchWallet } from "../services/net.js";
+import { saveSession } from "../services/sessionStore.js";
 import { setSession } from "../state/session.js";
-import { COLORS, createButton, TEXT_STYLES } from "../ui/kit.js";
-import type { ButtonHandle } from "../ui/kit.js";
+import { COLOR, TEXT } from "../ui/theme.js";
+import { glossyButton, menuBackground } from "../ui/widgets.js";
+import type { GameButton } from "../ui/widgets.js";
+
+interface SignIn {
+  readonly token: string;
+  readonly nickname: string;
+}
 
 export class LoginScene extends Phaser.Scene {
-  private statusText!: Phaser.GameObjects.Text;
-  private buttons: ButtonHandle[] = [];
+  private buttons: GameButton[] = [];
+  private status!: Phaser.GameObjects.Text;
 
   constructor() {
     super("Login");
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor(COLORS.background);
+    const cx = GAME_WIDTH / 2;
     this.buttons = [];
+    menuBackground(this);
 
-    this.add.text(GAME_WIDTH / 2, 240, t("loginTitle"), TEXT_STYLES.title).setOrigin(0.5);
+    this.add
+      .image(cx - 160, 320, "guti-flat")
+      .setDisplaySize(210, 105)
+      .setAngle(-20);
+    this.add
+      .image(cx + 160, 345, "guti-round")
+      .setDisplaySize(210, 105)
+      .setAngle(16);
+    this.add.text(cx, 470, "CHAR", { ...TEXT.hero, fontSize: "100px" }).setOrigin(0.5);
+    this.add
+      .text(cx, 580, "GUTY", { ...TEXT.hero, fontSize: "100px", color: COLOR.goldText })
+      .setOrigin(0.5);
+    this.add.text(cx, 668, "The village game of throws and tokkas", TEXT.body).setOrigin(0.5);
 
     this.buttons.push(
-      createButton(this, GAME_WIDTH / 2, 620, t("loginGoogle"), () => {
-        void this.handle(signInWithGoogle(), false);
+      glossyButton(this, cx, 830, "PLAY AS GUEST", () => void this.signIn(guestSignIn(), true), {
+        width: 540,
+        height: 112,
+        color: "green",
+        icon: "icon-user",
       }),
     );
-    this.buttons.push(
-      createButton(this, GAME_WIDTH / 2, 730, t("loginFacebook"), () => {
-        void this.handle(signInWithFacebook(), false);
-      }),
-    );
-    this.buttons.push(
-      createButton(
-        this,
-        GAME_WIDTH / 2,
-        840,
-        t("loginGuest"),
-        () => {
-          void this.handle(fetchGuestToken("Guest"), true);
-        },
-        { color: COLORS.secondary, hoverColor: COLORS.secondaryHover },
-      ),
-    );
+    // Only offered once the Firebase web config is set - without it these always fail.
+    if (isFirebaseConfigured()) {
+      this.buttons.push(
+        glossyButton(
+          this,
+          cx,
+          965,
+          "SIGN IN WITH GOOGLE",
+          () => void this.signIn(signInWithGoogle(), false),
+          { width: 540, height: 100, color: "blue", fontSize: 32 },
+        ),
+        glossyButton(
+          this,
+          cx,
+          1085,
+          "SIGN IN WITH FACEBOOK",
+          () => void this.signIn(signInWithFacebook(), false),
+          { width: 540, height: 100, color: "blue", fontSize: 32 },
+        ),
+      );
+    }
 
-    this.statusText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 120, "", TEXT_STYLES.muted)
+    this.status = this.add
+      .text(cx, GAME_HEIGHT - 120, "", { ...TEXT.body, align: "center", wordWrap: { width: 600 } })
+      .setOrigin(0.5);
+    this.add
+      .text(cx, GAME_HEIGHT - 50, "Free to play · no purchases, ever", TEXT.small)
       .setOrigin(0.5);
   }
 
-  private async handle(
-    signIn: Promise<{ token: string; nickname: string }>,
-    isGuest: boolean,
-  ): Promise<void> {
-    this.setButtonsEnabled(false);
-    this.statusText.setText(t("signingIn"));
+  private async signIn(attempt: Promise<SignIn>, isGuest: boolean): Promise<void> {
+    this.setBusy(true);
+    this.status.setText("Signing in...").setColor(COLOR.muted);
     try {
-      const { token, nickname } = await signIn;
+      const { token, nickname } = await attempt;
       const wallet = await fetchWallet(token, nickname);
       setSession({
         userId: wallet.userId,
@@ -66,14 +92,30 @@ export class LoginScene extends Phaser.Scene {
         coins: wallet.coins,
         winPoints: wallet.winPoints,
       });
-      this.scene.start("Lobby");
+      saveSession({ token, nickname: wallet.nickname, isGuest });
+      this.scene.start("Home");
     } catch (err) {
-      this.statusText.setText(err instanceof Error ? err.message : String(err));
-      this.setButtonsEnabled(true);
+      console.error(err);
+      this.status.setText(describeSignInError(err)).setColor(COLOR.lose);
+      this.setBusy(false);
     }
   }
 
-  private setButtonsEnabled(enabled: boolean): void {
-    for (const button of this.buttons) button.setEnabled(enabled);
+  private setBusy(busy: boolean): void {
+    for (const button of this.buttons) button.setEnabled(!busy);
   }
+}
+
+/** A new guest gets a numbered handle, so the leaderboard isn't a wall of identical names. */
+function guestSignIn(): Promise<SignIn> {
+  return fetchGuestToken(`Guest${Math.floor(1000 + Math.random() * 9000)}`);
+}
+
+function describeSignInError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/popup-closed|cancelled-popup/i.test(message)) return "Sign-in was cancelled";
+  if (/failed to fetch|networkerror/i.test(message)) {
+    return "Can't reach the game server. Check your connection and try again.";
+  }
+  return "Sign-in didn't work. Please try again.";
 }

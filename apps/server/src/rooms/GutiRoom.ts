@@ -10,21 +10,31 @@ import {
   reduceTokka,
   settle,
   simulateTokka,
+  strayFlick,
 } from "@char-guty/game-core";
-import type { MatchEvent, MatchState } from "@char-guty/game-core";
+import type { MatchEvent, MatchState, Settlement } from "@char-guty/game-core";
 import { joinOptionsSchema, pickPotPayloadSchema, tokkaPayloadSchema } from "@char-guty/shared";
 import type { TokkaPayload } from "@char-guty/shared";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { verifyAuthToken } from "../auth/auth.js";
 import { db } from "../db/client.js";
 import { endMatch, startMatch } from "../db/matchRepository.js";
 import { upsertUser } from "../db/userService.js";
 import { applyLedger, canAffordAll, InsufficientCoinsError } from "../db/walletService.js";
 import { CryptoRng } from "../rng/CryptoRng.js";
+import { chooseComputerTokka } from "./computerPlayer.js";
 import { generateRoomCode } from "./roomCode.js";
 
-type RoomMode = "friend" | "random";
+type RoomMode = "friend" | "random" | "computer";
 type RoomPhase = "LOBBY" | "PLAYING" | "ENDED";
+
+/** How long a finished game's result stays up before scores reset and the next game starts. */
+const NEXT_ROUND_DELAY_MS = 10_000;
+/** How long a computer player takes over each action, so its moves can be followed. */
+const COMPUTER_THINK_MS = 1_200;
+const LOCK_RETRY_MS = 250;
+/** Vs-computer games are practice: nothing is staked, so there's nothing to settle. */
+const NO_SETTLEMENT: Settlement = { stakes: [], payout: null, deltas: {} };
 
 interface RoomMetadata {
   mode: RoomMode;
@@ -44,14 +54,8 @@ interface Seat {
   readonly sessionId: string;
   readonly userId: string;
   readonly nickname: string;
-}
-
-function isPendingPair(
-  pending: readonly (readonly [number, number])[],
-  a: number,
-  b: number,
-): boolean {
-  return pending.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  /** A server-driven computer player: no connection, and never staked or paid. */
+  readonly isComputer: boolean;
 }
 
 /**
@@ -62,11 +66,20 @@ function isPendingPair(
  * Player identity: game-core's MatchState.players holds the persistent db user id
  * (survives reconnects and is what the wallet/matches tables key on), not the
  * Colyseus sessionId - `seats` maps between the two.
+ *
+ * A room outlives one game: once someone reaches the pot, the result stays up for
+ * NEXT_ROUND_DELAY_MS, then everyone still seated stakes again and a new game starts
+ * from zero, with the first throw passing to the next seat.
+ *
+ * In "computer" mode the one human who opened the room is seated with computer players,
+ * which take their turns from here (playComputerAction). Those games are practice only.
  */
 export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedPlayer> {
   private mode: RoomMode = "random";
   private code: string | null = null;
   private pot: number | null = null;
+  /** Seats a game needs, computer players included. */
+  private playerCount = 2;
   private hostUserId: string | null = null;
   private seats: Seat[] = [];
   private roomPhase: RoomPhase = "LOBBY";
@@ -75,8 +88,12 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   private readonly rng = new CryptoRng();
   private readonly forfeited = new Set<string>();
   private actionTimer: Delayed | null = null;
+  private computerTimer: Delayed | null = null;
+  private nextRoundTimer: Delayed | null = null;
   /** Epoch ms by which the current player must act; null when nothing is pending. */
   private turnDeadlineAt: number | null = null;
+  /** Who threw first in the previous game; the next game starts from the seat after. */
+  private lastStarter: string | null = null;
   /** Serializes DB-touching mutations - message handlers are async now, so a second
    * message can otherwise arrive mid-await and race the first. */
   private busy = false;
@@ -84,7 +101,9 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   override async onCreate(options: unknown): Promise<void> {
     const parsed = joinOptionsSchema.parse(options);
     this.mode = parsed.mode;
-    this.maxClients = parsed.playerCount;
+    this.playerCount = parsed.playerCount;
+    // A vs-computer room admits only the human who opened it; computers take the other seats.
+    this.maxClients = parsed.mode === "computer" ? 1 : parsed.playerCount;
     this.pot = parsed.pot ?? null;
     this.code = this.mode === "friend" ? generateRoomCode() : null;
 
@@ -92,7 +111,7 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       mode: this.mode,
       code: this.code,
       pot: this.pot,
-      playerCount: this.maxClients,
+      playerCount: this.playerCount,
     });
 
     this.onMessage(
@@ -130,9 +149,11 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       sessionId: client.sessionId,
       userId: auth.userId,
       nickname: auth.nickname,
+      isComputer: false,
     };
     this.seats.push(seat);
     if (this.hostUserId === null) this.hostUserId = seat.userId;
+    if (this.mode === "computer") this.seatComputers();
     void this.withLock(() => this.tryStartMatch());
     this.broadcastState();
   }
@@ -153,6 +174,29 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
 
   override onDispose(): void {
     this.actionTimer?.clear();
+    this.computerTimer?.clear();
+    this.nextRoundTimer?.clear();
+  }
+
+  /** Vs-computer games are practice: only games between people put coins on the line. */
+  private get staked(): boolean {
+    return this.mode !== "computer";
+  }
+
+  private seatComputers(): void {
+    while (this.seats.length < this.playerCount) {
+      const id = randomUUID();
+      this.seats.push({
+        sessionId: `computer-${id}`,
+        userId: id,
+        nickname: "Computer",
+        isComputer: true,
+      });
+    }
+  }
+
+  private isComputer(userId: string): boolean {
+    return this.seats.some((seat) => seat.userId === userId && seat.isComputer);
   }
 
   private userIdFor(client: Client): string | undefined {
@@ -172,6 +216,14 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     } finally {
       this.busy = false;
     }
+  }
+
+  /** A timer that runs fn under the lock, waiting for the lock rather than being dropped as busy. */
+  private runLockedSoon(fn: () => Promise<void>, delayMs: number): Delayed {
+    return this.clock.setTimeout(() => {
+      if (this.busy) this.runLockedSoon(fn, LOCK_RETRY_MS);
+      else void this.withLock(fn);
+    }, delayMs);
   }
 
   private async handlePickPot(client: Client, message: { pot: number }): Promise<void> {
@@ -194,25 +246,39 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
 
   private async handleTokka(client: Client, message: TokkaPayload): Promise<void> {
     const userId = this.userIdFor(client);
-    if (userId === undefined || this.matchState === null || this.roomPhase !== "PLAYING") return;
-    if (this.matchState.currentPlayer !== userId) return;
-    if (!isPendingPair(this.matchState.pendingTokkas, message.shooterId, message.targetId)) {
-      client.send("error", { message: "not an eligible tokka pair" });
-      return;
-    }
+    if (userId !== undefined) await this.playTokka(userId, message);
+  }
 
+  private async playTokka(userId: string, tokka: TokkaPayload): Promise<void> {
+    const state = this.matchState;
+    if (state === null || this.roomPhase !== "PLAYING") return;
+    if (state.currentPlayer !== userId || state.phase !== "TOKKA") return;
+    // A stale client can still send a guti that has already gone out.
+    if (!state.gutis.some((g) => g.id === tokka.shooterId)) return;
+
+    // The flick as played: it strays from the aim that was sent, more the harder it is.
+    const played = { ...tokka, flick: strayFlick(tokka.flick, this.rng, DEFAULT_CONFIG) };
     // Re-run the (pure, deterministic) sim standalone purely to capture replay frames -
     // reduceTokka below performs the authoritative hit/position calculation itself.
-    const frames = simulateTokka(
-      this.matchState.gutis,
-      message.shooterId,
-      message.targetId,
-      message.flick,
-      { ...DEFAULT_CONFIG, recordFrames: true },
-    ).frames;
+    const { frames } = simulateTokka(state.gutis, played.shooterId, played.flick, {
+      ...DEFAULT_CONFIG,
+      recordFrames: true,
+    });
     if (frames !== undefined) this.broadcast("tokkaFrames", frames);
 
-    await this.runAction(userId, (state) => reduceTokka(state, message, DEFAULT_CONFIG));
+    await this.runAction(userId, (current) => reduceTokka(current, played, DEFAULT_CONFIG));
+  }
+
+  private async playComputerAction(): Promise<void> {
+    const state = this.matchState;
+    if (state === null || this.roomPhase !== "PLAYING") return;
+    const player = state.currentPlayer;
+    if (!this.isComputer(player)) return;
+    if (state.phase === "THROW") {
+      await this.runAction(player, (current) => reduceThrow(current, this.rng, DEFAULT_CONFIG));
+    } else if (state.phase === "TOKKA") {
+      await this.playTokka(player, chooseComputerTokka(state.gutis, this.rng));
+    }
   }
 
   private async runAction(
@@ -251,13 +317,19 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   private scheduleNextAction(): void {
     this.actionTimer?.clear();
     this.actionTimer = null;
+    this.computerTimer?.clear();
+    this.computerTimer = null;
     this.turnDeadlineAt = null;
     if (this.matchState === null) return;
-    if (this.forfeited.has(this.matchState.currentPlayer)) {
+    const current = this.matchState.currentPlayer;
+    if (this.forfeited.has(current)) {
       // Deferred a tick: this runs inside the lock that produced the current state,
       // so an immediate withLock() call would be dropped as busy.
       this.clock.setTimeout(() => void this.withLock(() => this.runTimeout()), 0);
       return;
+    }
+    if (this.isComputer(current)) {
+      this.computerTimer = this.runLockedSoon(() => this.playComputerAction(), COMPUTER_THINK_MS);
     }
     this.turnDeadlineAt = Date.now() + DEFAULT_CONFIG.turnTimeoutMs;
     this.actionTimer = this.clock.setTimeout(
@@ -274,21 +346,20 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
 
   private async tryStartMatch(): Promise<void> {
     if (this.roomPhase !== "LOBBY") return;
-    if (this.pot === null || this.seats.length < this.maxClients) return;
+    if (this.pot === null || this.seats.length < this.playerCount) return;
 
-    const seats = this.seats;
-    const playerIds = seats.map((seat) => seat.userId);
+    const playerIds = this.seats.map((seat) => seat.userId);
     const pot = this.pot;
     const stake = pot / playerIds.length;
 
-    if (!(await canAffordAll(db, playerIds, stake))) {
+    if (this.staked && !(await canAffordAll(db, playerIds, stake))) {
       this.broadcast("error", { message: "a player cannot afford the stake" });
       return;
     }
 
     let matchState: MatchState;
     try {
-      matchState = createMatchState(playerIds, pot, DEFAULT_CONFIG);
+      matchState = createMatchState(playerIds, pot, DEFAULT_CONFIG, this.nextStarter(playerIds));
     } catch (err) {
       if (err instanceof InvalidMatchConfigError) {
         this.broadcast("error", { message: err.message });
@@ -305,50 +376,65 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       seed: randomBytes(8).toString("hex"),
     });
 
-    const charged: string[] = [];
-    try {
-      for (const userId of playerIds) {
-        await applyLedger(db, {
-          userId,
-          currency: "coin",
-          delta: -stake,
-          reason: "match_stake",
-          refType: "match",
-          refId: matchId,
-        });
-        charged.push(userId);
+    if (this.staked) {
+      const charged: string[] = [];
+      try {
+        for (const userId of playerIds) {
+          await applyLedger(db, {
+            userId,
+            currency: "coin",
+            delta: -stake,
+            reason: "match_stake",
+            refType: "match",
+            refId: matchId,
+          });
+          charged.push(userId);
+        }
+      } catch (err) {
+        for (const userId of charged) {
+          await applyLedger(db, {
+            userId,
+            currency: "coin",
+            delta: stake,
+            reason: "match_stake_refund",
+            refType: "match",
+            refId: matchId,
+          });
+        }
+        if (err instanceof InsufficientCoinsError) {
+          this.broadcast("error", { message: "a player cannot afford the stake" });
+          return;
+        }
+        throw err;
       }
-    } catch (err) {
-      for (const userId of charged) {
-        await applyLedger(db, {
-          userId,
-          currency: "coin",
-          delta: stake,
-          reason: "match_stake_refund",
-          refType: "match",
-          refId: matchId,
-        });
-      }
-      if (err instanceof InsufficientCoinsError) {
-        this.broadcast("error", { message: "a player cannot afford the stake" });
-        return;
-      }
-      throw err;
     }
 
     this.matchId = matchId;
     this.matchState = matchState;
+    this.lastStarter = matchState.currentPlayer;
     this.roomPhase = "PLAYING";
+    // Locked explicitly (Colyseus would auto-unlock on any leave) so a seat freed mid-game
+    // isn't matchmade into a game already under way; seats reopen between games.
+    await this.lock();
     this.scheduleNextAction();
     // tryStartMatch runs async (DB calls), so onJoin/handlePickPot's own broadcastState()
     // fires before this resolves - the client only learns PLAYING actually started here.
     this.broadcastState();
   }
 
+  /** The seat after the previous game's first thrower; seat 0 for a first game or if they left. */
+  private nextStarter(playerIds: readonly string[]): string | undefined {
+    if (this.lastStarter === null) return undefined;
+    const index = playerIds.indexOf(this.lastStarter);
+    return playerIds[(index + 1) % playerIds.length];
+  }
+
   private handleDeparture(userId: string | undefined): void {
     if (userId === undefined) return;
     if (this.roomPhase !== "PLAYING" || this.matchState === null) {
       this.seats = this.seats.filter((seat) => seat.userId !== userId);
+      // Reopen the freed seat; between games (ENDED) startNextRound decides that instead.
+      if (this.roomPhase === "LOBBY") void this.unlock();
       this.broadcastState();
       return;
     }
@@ -373,8 +459,10 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     this.roomPhase = "ENDED";
     this.actionTimer?.clear();
     this.actionTimer = null;
+    this.computerTimer?.clear();
+    this.computerTimer = null;
 
-    const settlement = settle(state);
+    const settlement = this.staked ? settle(state) : NO_SETTLEMENT;
     if (settlement.payout !== null && this.matchId !== null) {
       const { player, coins } = settlement.payout;
       await applyLedger(db, {
@@ -398,8 +486,29 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       await endMatch(db, { matchId: this.matchId, winnerId: state.winner, turnLog: state.turnLog });
     }
 
-    this.broadcast("matchEnded", { winner: state.winner, settlement });
-    this.clock.setTimeout(() => this.disconnect(), 10_000);
+    this.broadcast("matchEnded", {
+      winner: state.winner,
+      settlement,
+      nextRoundInMs: NEXT_ROUND_DELAY_MS,
+    });
+    this.nextRoundTimer = this.runLockedSoon(() => this.startNextRound(), NEXT_ROUND_DELAY_MS);
+  }
+
+  /** Deals a fresh game, scores back at zero, to whoever is still seated. */
+  private async startNextRound(): Promise<void> {
+    if (this.roomPhase !== "ENDED") return;
+    this.nextRoundTimer = null;
+    this.seats = this.seats.filter((seat) => !this.forfeited.has(seat.userId));
+    this.forfeited.clear();
+    this.matchState = null;
+    this.matchId = null;
+    this.roomPhase = "LOBBY";
+
+    await this.tryStartMatch();
+    if (this.roomPhase !== "LOBBY") return;
+    // Short of players (someone left) or of coins: wait in LOBBY, empty seats open again.
+    if (this.seats.length < this.playerCount) await this.unlock();
+    this.broadcastState();
   }
 
   private statePayload() {
@@ -409,6 +518,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       roomPhase: this.roomPhase,
       hostUserId: this.hostUserId,
       seats: this.seats,
+      playerCount: this.playerCount,
+      pot: this.pot,
       match: this.matchState,
       turnDeadlineAt: this.turnDeadlineAt,
       serverNow: Date.now(),
