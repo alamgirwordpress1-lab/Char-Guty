@@ -7,6 +7,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "dev": "vite",
     "build": "vite build",
+    "bundle:fb": "vite build --mode fbinstant && tsx scripts/zip-fbinstant.ts",
     "preview": "vite preview",
     "generate-assets": "tsx scripts/generate-assets.ts"
   },
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
+    "fflate": "^0.8.3",
     "sharp": "^0.35.4",
     "tsx": "^4.23.13",
     "vite": "^8.3.0"

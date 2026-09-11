@@ -12,7 +12,11 @@ import { LeaderboardScene } from "./scenes/LeaderboardScene.js";
 import { LoginScene } from "./scenes/LoginScene.js";
 import { MatchmakingScene } from "./scenes/MatchmakingScene.js";
 import { ProfileScene } from "./scenes/ProfileScene.js";
+import { initPlatform } from "./services/platform.js";
 import { COLOR } from "./ui/theme.js";
+
+// Inside Facebook the SDK has to be initialised before anything else calls it.
+await initPlatform();
 
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).get("mock") === "game") {
   const { createMockGame } = await import("./game/mockRoom.js");

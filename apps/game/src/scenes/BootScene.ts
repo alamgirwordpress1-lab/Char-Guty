@@ -3,6 +3,7 @@ import { GAME_WIDTH } from "../config.js";
 import { getMockGame } from "../dev.js";
 import { currentFirebaseSession, isFirebaseConfigured } from "../services/auth.js";
 import { fetchWallet } from "../services/net.js";
+import { reportLoadingProgress, startPlatformGame } from "../services/platform.js";
 import { forgetSession, loadSession, saveSession } from "../services/sessionStore.js";
 import { isSoundOn } from "../services/settings.js";
 import { setSession } from "../state/session.js";
@@ -84,12 +85,14 @@ export class BootScene extends Phaser.Scene {
     this.load.on("progress", (progress: number) => {
       fill.setSize(barWidth * progress, 28);
       this.status.setText(`Loading ${Math.round(progress * 100)}%`);
+      reportLoadingProgress(progress);
     });
     this.load.on("loaderror", (file: Phaser.Loader.File) => {
       if (file.type === "image") this.failedImages.add(file.key);
     });
-    for (const key of IMAGES) this.load.image(key, `/assets/${key}.png`);
-    for (const [key, file] of SOUNDS) this.load.audio(key, [`/assets/${file}`]);
+    // Relative, so the same build loads from a site root and from Facebook's hosting path.
+    for (const key of IMAGES) this.load.image(key, `assets/${key}.png`);
+    for (const [key, file] of SOUNDS) this.load.audio(key, [`assets/${file}`]);
   }
 
   create(): void {
@@ -100,6 +103,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private async enterGame(): Promise<void> {
+    await startPlatformGame();
     await waitForFont();
     const mock = getMockGame();
     if (mock !== null) {
