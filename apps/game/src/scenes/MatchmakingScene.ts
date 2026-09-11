@@ -10,6 +10,7 @@ import {
   joinRandomMatch,
   joinRoomById,
 } from "../services/net.js";
+import { inviteToRoom, isFacebookInstant } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
 import { COLOR, TEXT } from "../ui/theme.js";
@@ -194,7 +195,8 @@ export class MatchmakingScene extends Phaser.Scene {
         color: COLOR.goldText,
       })
       .setOrigin(0.5);
-    glossyButton(this, GAME_WIDTH / 2 + 170, y, "SHARE", () => void this.shareCode(code), {
+    const label = isFacebookInstant ? "INVITE" : "SHARE";
+    glossyButton(this, GAME_WIDTH / 2 + 170, y, label, () => void this.shareCode(code), {
       width: 180,
       height: 86,
       color: "orange",
@@ -205,6 +207,11 @@ export class MatchmakingScene extends Phaser.Scene {
 
   private async shareCode(code: string): Promise<void> {
     try {
+      if (isFacebookInstant) {
+        // Facebook's friend picker; the invite carries the code, so a friend lands in this room.
+        await inviteToRoom(code, await this.inviteImage());
+        return;
+      }
       // Not every browser has a share sheet; the rest get the code copied instead.
       if (typeof navigator.share === "function") {
         await navigator.share({ text: `Join my Char Guty room! Code: ${code}` });
@@ -215,6 +222,21 @@ export class MatchmakingScene extends Phaser.Scene {
     } catch {
       notify(this, `Room code: ${code}`);
     }
+  }
+
+  /** The waiting screen itself - seats and room code - as the picture on the invite. */
+  private inviteImage(): Promise<string> {
+    return new Promise((resolve) => {
+      this.game.renderer.snapshotArea(
+        0,
+        100,
+        GAME_WIDTH,
+        1000,
+        (snapshot) => resolve(snapshot instanceof HTMLImageElement ? snapshot.src : ""),
+        "image/jpeg",
+        0.8,
+      );
+    });
   }
 
   private async cancel(): Promise<void> {

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
 import { fetchWallet } from "../services/net.js";
+import { takeInvitedRoomCode } from "../services/platform.js";
 import { getSession, updateBalance } from "../state/session.js";
 import { openFreeCoins } from "../ui/freeCoins.js";
 import { openSettings } from "../ui/settingsDialog.js";
@@ -15,7 +16,7 @@ import {
   shortName,
 } from "../ui/widgets.js";
 import type { ButtonColor, CoinPill } from "../ui/widgets.js";
-import type { ArenaSceneData, PlayMode } from "./flow.js";
+import type { ArenaSceneData, MatchmakingSceneData, PlayMode } from "./flow.js";
 
 interface ModeTile {
   readonly mode: PlayMode;
@@ -58,6 +59,18 @@ export class HomeScene extends Phaser.Scene {
   }
 
   create(): void {
+    // A Facebook invite launches the game straight into the inviter's room, the first time only.
+    const invitedRoom = takeInvitedRoomCode();
+    if (invitedRoom !== null) {
+      this.scene.start("Matchmaking", {
+        mode: "friends",
+        playerCount: 2,
+        pot: null,
+        code: invitedRoom,
+      } satisfies MatchmakingSceneData);
+      return;
+    }
+
     menuBackground(this);
     this.buildTopBar();
     this.buildLogo();

@@ -112,6 +112,45 @@ describe("POST /ads/mock-reward", () => {
   });
 });
 
+describe("POST /ads/instant-reward", () => {
+  let instantApp: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.INSTANT_AD_REWARDS = "true";
+    instantApp = buildApp({ db });
+    delete process.env.INSTANT_AD_REWARDS;
+    await instantApp.ready();
+  });
+
+  it("does not exist unless INSTANT_AD_REWARDS is on", async () => {
+    const token = await guestToken();
+    const res = await app.inject({
+      method: "POST",
+      url: "/ads/instant-reward",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { transactionId: randomUUID() },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("credits a claim when on, and refuses the same transaction twice", async () => {
+    const token = await guestToken();
+    const transactionId = randomUUID();
+    const claim = () =>
+      instantApp.inject({
+        method: "POST",
+        url: "/ads/instant-reward",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { transactionId },
+      });
+    const first = await claim();
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ ok: true, coins: 325 });
+    const replay = await claim();
+    expect(replay.statusCode).toBe(409);
+  });
+});
+
 describe("GET /leaderboard", () => {
   it("defaults to all-time and returns an array", async () => {
     const res = await app.inject({ method: "GET", url: "/leaderboard" });

@@ -49,7 +49,7 @@ export async function fetchLeaderboard(period: LeaderboardPeriod): Promise<Leade
   return body.entries;
 }
 
-export interface MockAdResult {
+export interface AdRewardResult {
   readonly ok: boolean;
   readonly reason?: string;
   readonly coins?: number;
@@ -57,13 +57,25 @@ export interface MockAdResult {
 }
 
 /** Dev/web stand-in for a rewarded ad (server route only exists when ADS_MOCK=true). */
-export async function claimMockAdReward(token: string): Promise<MockAdResult> {
-  const res = await fetch(`${SERVER_HTTP_URL}/ads/mock-reward`, {
+export function claimMockAdReward(token: string): Promise<AdRewardResult> {
+  return claimAdReward("/ads/mock-reward", token, {});
+}
+
+/** A rewarded video watched inside Facebook (route only exists when INSTANT_AD_REWARDS=true). */
+export function claimInstantAdReward(
+  token: string,
+  transactionId: string,
+): Promise<AdRewardResult> {
+  return claimAdReward("/ads/instant-reward", token, { transactionId });
+}
+
+async function claimAdReward(path: string, token: string, body: object): Promise<AdRewardResult> {
+  const res = await fetch(`${SERVER_HTTP_URL}${path}`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   });
-  return (await res.json()) as MockAdResult;
+  return (await res.json()) as AdRewardResult;
 }
 
 export async function findRoomByCode(token: string, code: string): Promise<string> {
