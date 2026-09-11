@@ -17,11 +17,15 @@ function instantGamesSdk(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const fbinstant = mode === "fbinstant";
+  const android = mode === "android";
   return {
-    // Relative URLs: Facebook serves the bundle from its own path, not a site root.
+    // Relative URLs: Facebook serves the bundle from its own path, Android from a file path.
     base: "./",
     plugins: fbinstant ? [instantGamesSdk()] : [],
     server: { port: 5173 },
-    build: { outDir: fbinstant ? "build/fbinstant" : "dist", sourcemap: !fbinstant },
+    build: {
+      outDir: fbinstant ? "build/fbinstant" : android ? "build/android" : "dist",
+      sourcemap: !fbinstant && !android,
+    },
   };
 });

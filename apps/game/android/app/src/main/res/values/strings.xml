@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Char Guty</string>
+    <string name="title_activity_main">Char Guty</string>
+    <string name="package_name">com.charguty.game</string>
+    <string name="custom_url_scheme">com.charguty.game</string>
+</resources>
