@@ -1,0 +1,61 @@
+# Publishes the browser build to GitHub Pages, so the game has a free public link that
+# anyone can open on a phone - no store, no install. Needs Pages enabled on the repo
+# with "Source: GitHub Actions" (Settings -> Pages).
+name: Web (GitHub Pages)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "apps/game/**"
+      - "packages/**"
+      - ".github/workflows/web-pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push should win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # apps/game imports these workspace packages from their dist output.
+      - run: pnpm --filter @char-guty/game-core --filter @char-guty/shared run build
+
+      - run: pnpm --filter @char-guty/game run build:web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/game/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

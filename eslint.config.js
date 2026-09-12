@@ -15,4 +15,11 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
     },
   },
+  {
+    // The service worker runs in its own global scope, not the window's.
+    files: ["apps/game/public/sw.js"],
+    languageOptions: {
+      globals: { self: "readonly", fetch: "readonly" },
+    },
+  },
 );

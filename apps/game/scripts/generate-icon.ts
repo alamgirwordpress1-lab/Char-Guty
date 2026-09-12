@@ -1,7 +1,8 @@
 /**
- * Generates apps/game/branding/app-icon.png - the 1024x1024 store icon Facebook, Meta
- * and Google all ask for. Same art language as scripts/generate-assets.ts: four gutis
- * (two gold cut faces, two dark rounded backs) on the menu's blue glow.
+ * Generates the game's icon: branding/app-icon.png (1024x1024 - the store icon Facebook,
+ * Meta and Google all ask for) plus the public/icon-*.png sizes the web app manifest
+ * points at for "Add to Home screen". Same art language as scripts/generate-assets.ts:
+ * four gutis (two gold cut faces, two dark rounded backs) on the menu's blue glow.
  * Re-run with `pnpm -F @char-guty/game exec tsx scripts/generate-icon.ts`.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -71,7 +72,17 @@ function iconSvg(): string {
   </svg>`;
 }
 
+const publicDir = fileURLToPath(new URL("../public", import.meta.url));
+
 mkdirSync(outDir, { recursive: true });
-const png = await sharp(Buffer.from(iconSvg())).png().toBuffer();
+const svg = Buffer.from(iconSvg());
+const png = await sharp(svg).png().toBuffer();
 writeFileSync(`${outDir}/app-icon.png`, png);
 console.log(`wrote branding/app-icon.png (${SIZE}x${SIZE}, ${png.length} bytes)`);
+
+// 180 is what iOS uses for apple-touch-icon; 192 and 512 are the manifest's two sizes.
+for (const size of [180, 192, 512]) {
+  const resized = await sharp(svg).resize(size, size).png().toBuffer();
+  writeFileSync(`${publicDir}/icon-${size}.png`, resized);
+  console.log(`wrote public/icon-${size}.png (${resized.length} bytes)`);
+}

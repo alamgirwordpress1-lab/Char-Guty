@@ -9,6 +9,7 @@
     "build": "vite build",
     "bundle:fb": "vite build --mode fbinstant && tsx scripts/zip-fbinstant.ts",
     "build:android": "vite build --mode android && cap sync android",
+    "build:web": "vite build --mode web",
     "preview": "vite preview",
     "generate-assets": "tsx scripts/generate-assets.ts"
   },
