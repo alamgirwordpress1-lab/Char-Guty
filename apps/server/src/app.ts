@@ -34,6 +34,13 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  // Meta and Google both require a public privacy policy URL before a game can be
+  // published, and the game has no site of its own - so it is served from here.
+  app.get("/privacy", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return privacyPage();
+  });
+
   app.post("/auth/guest", async (request) => {
     const body = request.body as { nickname?: string } | undefined;
     const nickname = body?.nickname ?? "Guest";
@@ -204,4 +211,59 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
   }
 
   return app;
+}
+
+/** The privacy policy and data-deletion instructions, kept in one page so both links can point here. */
+function privacyPage(): string {
+  const contact = process.env.PRIVACY_CONTACT_EMAIL;
+  const reach = contact === undefined ? "through the game's page on Facebook" : `at ${contact}`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Char Guty - Privacy Policy</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 32px 20px 64px; background: #0a173f; color: #e8eeff;
+         font: 16px/1.65 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; color: #ffd166; }
+  p, li { color: #c8d5f5; }
+  .updated { color: #8fa6d8; font-size: 14px; margin-bottom: 24px; }
+</style></head>
+<body><main>
+<h1>Char Guty - Privacy Policy</h1>
+<p class="updated">Last updated: 12 September 2026</p>
+
+<p>Char Guty is a free game. It has no purchases and pays out no money. The coins in the
+game have no cash value.</p>
+
+<h2>What the game stores</h2>
+<ul>
+  <li>A player id the game creates for you, and the nickname shown to other players.</li>
+  <li>Your coins, win points and the results of matches you play.</li>
+  <li>On your device: your sign-in for this game and your sound setting.</li>
+</ul>
+
+<h2>What the game does not collect</h2>
+<ul>
+  <li>No name, photo or friend list from Facebook. On Facebook the game runs with Zero
+      Permissions, so Meta does not share your profile with it.</li>
+  <li>No password, no payment details, no location, no contacts.</li>
+</ul>
+
+<h2>Ads</h2>
+<p>Where ads are shown, they are served by Meta Audience Network, which handles that ad
+data under Meta's own terms. The game does not pass your game data to advertisers.</p>
+
+<h2>Deleting your data</h2>
+<p>Ask us to delete your account and we remove your player record, nickname, coins, win
+points and match history. Reach us ${reach} and say which nickname to delete.</p>
+
+<h2>Children</h2>
+<p>The game is not directed at children under 13.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy: reach us ${reach}.</p>
+</main></body></html>`;
 }
