@@ -49,12 +49,38 @@ export async function inviteToRoom(roomCode: string, image: string): Promise<voi
   await sdk.inviteAsync({ image, text: "Join my Char Guty room!", data: { roomCode } });
 }
 
-/** The room a Facebook invite launched this session into - handed out once, then null. */
+/** The room an invite launched this session into - handed out once, then null. */
 export function takeInvitedRoomCode(): string | null {
-  if (sdk === undefined || invitedRoomTaken) return null;
+  if (invitedRoomTaken) return null;
   invitedRoomTaken = true;
-  const code = (sdk.getEntryPointData() as { roomCode?: unknown } | null)?.roomCode;
+  const code =
+    sdk === undefined
+      ? roomCodeFromUrl()
+      : (sdk.getEntryPointData() as { roomCode?: unknown } | null)?.roomCode;
   return typeof code === "string" && ROOM_CODE.test(code) ? code : null;
+}
+
+/**
+ * Outside Facebook the invite is just a link, so the room rides in ?room=. It is wiped
+ * from the address bar on the way in, or a reload would drop the player back into a room
+ * they have since left.
+ */
+function roomCodeFromUrl(): string | null {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("room");
+  if (code === null) return null;
+  url.searchParams.delete("room");
+  window.history.replaceState(null, "", url.toString());
+  return code.toUpperCase();
+}
+
+/** The link that drops whoever opens it straight into this room. */
+export function roomLink(roomCode: string): string {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("room", roomCode);
+  return url.toString();
 }
 
 /** Loads and plays one ad; rejects on no fill, a video closed early, or too-frequent loads. */

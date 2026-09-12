@@ -10,7 +10,7 @@ import {
   joinRandomMatch,
   joinRoomById,
 } from "../services/net.js";
-import { inviteToRoom, isFacebookInstant } from "../services/platform.js";
+import { inviteToRoom, isFacebookInstant, roomLink } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
 import { COLOR, TEXT } from "../ui/theme.js";
@@ -212,13 +212,16 @@ export class MatchmakingScene extends Phaser.Scene {
         await inviteToRoom(code, await this.inviteImage());
         return;
       }
-      // Not every browser has a share sheet; the rest get the code copied instead.
+      // A link, not just the code: whoever opens it lands in this room without typing it.
+      // Not every browser has a share sheet; the rest get the link copied instead.
+      const link = roomLink(code);
+      const text = `Join my Char Guty room! Code: ${code}`;
       if (typeof navigator.share === "function") {
-        await navigator.share({ text: `Join my Char Guty room! Code: ${code}` });
+        await navigator.share({ title: "Char Guty", text, url: link });
         return;
       }
-      await navigator.clipboard.writeText(code);
-      notify(this, "Room code copied");
+      await navigator.clipboard.writeText(link);
+      notify(this, "Invite link copied");
     } catch {
       notify(this, `Room code: ${code}`);
     }
