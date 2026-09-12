@@ -131,6 +131,10 @@ for (const size of [180, 192, 512]) {
   console.log(`wrote public/icon-${size}.png (${resized.length} bytes)`);
 }
 
+const feature = await sharp(Buffer.from(shareSvg())).resize(1024, 500).png().toBuffer();
+writeFileSync(`${outDir}/feature-graphic.png`, feature);
+console.log(`wrote branding/feature-graphic.png (1024x500, ${feature.length} bytes)`);
+
 const share = await sharp(Buffer.from(shareSvg())).png().toBuffer();
 writeFileSync(`${publicDir}/share-card.png`, share);
 console.log(`wrote public/share-card.png (1200x630, ${share.length} bytes)`);

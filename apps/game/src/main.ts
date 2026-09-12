@@ -49,4 +49,11 @@ const config: Phaser.Types.Core.GameConfig = {
   ],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Store screenshots have to come out of the real game at its own 720x1280, and a WebGL
+// canvas reads back blank through toDataURL - only the renderer's own snapshot works.
+// Opening the game with ?snap hands the instance over so a capture script can call it.
+if (new URLSearchParams(window.location.search).has("snap")) {
+  (globalThis as { charGutyGame?: Phaser.Game }).charGutyGame = game;
+}
