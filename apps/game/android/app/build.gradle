@@ -5,7 +5,7 @@ apply plugin: 'com.android.application'
 // these variables at it. Without them the release build simply comes out unsigned.
 def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 def keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-def keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "charguty"
+def uploadKeyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "charguty"
 
 android {
     namespace = "com.charguty.game"
@@ -16,7 +16,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Every upload to a store needs a higher versionCode than the last, so CI passes
         // the run number in; a local build just gets 1.
-        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1") as int
+        versionCode Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
         versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -31,7 +31,7 @@ android {
                 storeFile file(keystorePath)
                 storeType "PKCS12"
                 storePassword keystorePassword
-                keyAlias keyAlias
+                keyAlias uploadKeyAlias
                 keyPassword keystorePassword
             }
         }
