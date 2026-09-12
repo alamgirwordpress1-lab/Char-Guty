@@ -218,6 +218,8 @@ describe("admin routes", () => {
     const res = await adminApp.inject({ method: "GET", url: "/admin" });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("Char Guty admin");
+    // Without this, #login's display: grid kept the sign-in card over the dashboard.
+    expect(res.body).toContain("[hidden] { display: none !important; }");
   });
 
   it("list and find a player, ban them out of /me, and let them back in", async () => {

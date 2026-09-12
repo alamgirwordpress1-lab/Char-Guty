@@ -21,6 +21,8 @@ export function adminPage(): string {
     --green: #34d399; --red: #f87171; --amber: #fbbf24; --gold: #ffd166; --violet: #a78bfa;
   }
   * { box-sizing: border-box; }
+  /* The hidden attribute has to beat display rules like #login's grid, or a hidden element still shows. */
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
   button, input, select { font: inherit; }
   a { color: var(--accent2); text-decoration: none; }
