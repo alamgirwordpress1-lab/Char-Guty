@@ -6,7 +6,10 @@ import { timingSafeEqual } from "node:crypto";
  * person would be more to get wrong than it protects. No token set, no admin routes.
  */
 export function adminToken(): string | undefined {
-  const token = process.env.ADMIN_TOKEN;
+  // Trimmed: a value pasted into a hosting dashboard easily picks up a stray space or
+  // newline, and the sign-in page trims what the operator pastes - so both sides have to
+  // agree on what the token is, or the right token would never match.
+  const token = process.env.ADMIN_TOKEN?.trim();
   return token === undefined || token === "" ? undefined : token;
 }
 

@@ -149,6 +149,12 @@ export function adminPage(): string {
   .mini td, .mini th { padding: 8px 10px; }
   .ban-box { background: rgba(248,113,113,.07); border: 1px solid rgba(248,113,113,.25); border-radius: 12px; padding: 14px; }
 
+  .token-row { display: flex; gap: 8px; }
+  .token-row .input { flex: 1; }
+  .login-error { margin: 12px 0 0; padding: 9px 12px; border-radius: 9px; background: rgba(248,113,113,.12);
+                 border: 1px solid rgba(248,113,113,.35); color: #fecaca; font-size: 13px; }
+  #signin { margin-top: 14px; }
+
   @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
   @media (max-width: 860px) {
     .sidebar { transform: translateX(-100%); }
@@ -167,9 +173,12 @@ export function adminPage(): string {
   <div class="login-card">
     <div class="logo">CG</div>
     <h1>Char Guty admin</h1>
-    <p>Sign in with the ADMIN_TOKEN set on the server.</p>
-    <div class="field"><span>Admin token</span><input id="token" class="input" type="password" autocomplete="off" /></div>
-    <div style="height:12px"></div>
+    <p>Paste the value of ADMIN_TOKEN from the server's environment settings.</p>
+    <div class="field"><span>Admin token</span>
+      <div class="token-row"><input id="token" class="input" type="password" autocomplete="off" spellcheck="false" />
+      <button id="showToken" class="btn" type="button">Show</button></div>
+    </div>
+    <p id="loginError" class="login-error" role="alert" hidden></p>
     <button id="signin" class="btn primary block">Sign in</button>
   </div>
 </div>
@@ -240,7 +249,7 @@ async function api(path, options) {
   var res = await fetch(path, Object.assign({}, options, {
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }
   }));
-  if (res.status === 401) { signOut(); throw new Error("Session expired - sign in again."); }
+  if (res.status === 401) { signOut("The server stopped accepting this token. Sign in again."); throw new Error("Signed out"); }
   if (!res.ok) throw new Error("Request failed (" + res.status + ")");
   return res.json();
 }
@@ -259,26 +268,60 @@ function showShell(signedIn) {
     setTimeout(function () { $("#token").focus(); }, 0);
   }
 }
-function signOut() {
+function signOut(message) {
   token = "";
   sessionStorage.removeItem("cg_admin_token");
   closeDrawer();
   showShell(false);
+  loginError(typeof message === "string" ? message : "");
+}
+function loginError(text) {
+  $("#loginError").textContent = text || "";
+  $("#loginError").hidden = !text;
+}
+/* Sign-in asks the server directly instead of going through api(), so a rejected token
+   reads as a wrong token rather than as an expired session. */
+async function checkToken(candidate) {
+  var res;
+  try {
+    res = await fetch("/admin/stats", { headers: { Authorization: "Bearer " + candidate } });
+  } catch (err) {
+    return "Could not reach the server. Check the connection and try again.";
+  }
+  if (res.ok) return null;
+  if (res.status === 401) return "That token does not match ADMIN_TOKEN on the server. Copy the value again - every character counts.";
+  if (res.status === 404) return "The admin console is switched off: ADMIN_TOKEN is not set on the server.";
+  return "The server had a problem (" + res.status + "). Wait a minute and try again.";
 }
 $("#signin").onclick = async function () {
-  token = $("#token").value.trim();
-  if (!token) return;
-  try {
-    await api("/admin/stats");
-    sessionStorage.setItem("cg_admin_token", token);
-    $("#token").value = "";
-    showShell(true);
-  } catch (err) {
-    alert("Could not sign in: " + err.message);
+  /* Pasting drags along spaces, and sometimes the quotes around a value; neither is part of the token. */
+  var candidate = $("#token").value.trim().replace(/^["']+|["']+$/g, "");
+  if (!candidate) { loginError("Paste the admin token first."); return; }
+  if (/^[*]+$/.test(candidate)) {
+    loginError("That is the hidden version of the token - only stars. Reveal the real value in the server settings, then copy it.");
+    return;
   }
+  var button = $("#signin");
+  button.disabled = true;
+  button.textContent = "Checking...";
+  var problem = await checkToken(candidate);
+  button.disabled = false;
+  button.textContent = "Sign in";
+  if (problem) { loginError(problem); return; }
+  loginError("");
+  token = candidate;
+  sessionStorage.setItem("cg_admin_token", token);
+  $("#token").value = "";
+  showShell(true);
+};
+$("#showToken").onclick = function () {
+  var field = $("#token");
+  var reveal = field.type === "password";
+  field.type = reveal ? "text" : "password";
+  $("#showToken").textContent = reveal ? "Hide" : "Show";
 };
 $("#token").onkeydown = function (e) { if (e.key === "Enter") $("#signin").click(); };
-$("#signout").onclick = signOut;
+$("#signout").onclick = function () { signOut(); };
 $("#refresh").onclick = function () { render(); };
 $("#menu").onclick = function () { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; };
 $("#scrim").onclick = function () { closeDrawer(); closeSidebar(); };
