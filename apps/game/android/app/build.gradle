@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Stores reject an app signed with the debug key, so release builds are signed with an
+// upload key that never lives in the repo: CI writes it out from a secret and points
+// these variables at it. Without them the release build simply comes out unsigned.
+def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+def keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "charguty"
+
 android {
     namespace = "com.charguty.game"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +14,10 @@ android {
         applicationId "com.charguty.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Every upload to a store needs a higher versionCode than the last, so CI passes
+        // the run number in; a local build just gets 1.
+        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1") as int
+        versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +25,24 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePath != null) {
+                storeFile file(keystorePath)
+                storeType "PKCS12"
+                storePassword keystorePassword
+                keyAlias keyAlias
+                keyPassword keystorePassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePath != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
