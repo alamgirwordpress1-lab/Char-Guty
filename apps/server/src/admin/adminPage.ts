@@ -56,7 +56,7 @@ export function adminPage(): string {
   .topbar h1 { font-size: 18px; margin: 0; flex: 1; }
   .updated { color: var(--faint); font-size: 12px; }
   .icon-btn { display: none; }
-  main { padding: 24px 28px 60px; max-width: 1320px; }
+  main { padding: 24px 28px 60px; }
   .scrim { position: fixed; inset: 0; background: rgba(3,7,18,.6); z-index: 25; }
 
   /* controls */
@@ -73,7 +73,7 @@ export function adminPage(): string {
   .banner { margin: 16px 28px 0; padding: 10px 14px; border-radius: 10px; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.35); color: #fecaca; }
 
   /* cards and panels */
-  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
   .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
   .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
   .stat .value { font-size: 28px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
@@ -84,7 +84,7 @@ export function adminPage(): string {
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
   .card-head h2 { font-size: 15px; margin: 0; }
   .card-body { padding: 16px 18px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 
   /* toolbar */
   .toolbar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
@@ -99,6 +99,7 @@ export function adminPage(): string {
   th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 10px 18px; background: var(--card2);
        border-bottom: 1px solid var(--line); white-space: nowrap; }
   td { padding: 11px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  td.players { white-space: normal; min-width: 150px; }
   tbody tr:last-child td { border-bottom: 0; }
   tr.clickable { cursor: pointer; }
   tr.clickable:hover td { background: #16213b; }
@@ -121,10 +122,11 @@ export function adminPage(): string {
   .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 
   /* chart */
+  #chartBox { min-height: 260px; }
   .chart { width: 100%; height: auto; display: block; }
   .chart .bar-a { fill: var(--accent); }
   .chart .bar-b { fill: var(--gold); }
-  .chart .axis { fill: var(--faint); font-size: 11px; }
+  .chart .axis { fill: var(--faint); font-size: 12px; }
   .chart .gridline { stroke: var(--line); }
   .legend { display: flex; gap: 16px; color: var(--muted); font-size: 12px; margin-top: 6px; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
@@ -157,7 +159,9 @@ export function adminPage(): string {
                  border: 1px solid rgba(248,113,113,.35); color: #fecaca; font-size: 13px; }
   #signin { margin-top: 14px; }
 
-  @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
+  @media (max-width: 1700px) { .two { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 1600px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 860px) {
     .sidebar { transform: translateX(-100%); }
     .sidebar.open { transform: none; }
@@ -447,7 +451,7 @@ function matchesTable(rows) {
     "<th>Status</th><th>Winner</th></tr></thead><tbody>" +
     rows.map(function (m) {
       return "<tr><td title='" + esc(fullDate(m.startedAt)) + "'>" + esc(ago(m.startedAt)) + "</td><td>" + modeBadge(m.mode) + "</td>" +
-        "<td class='num'>" + num(m.pot) + "</td><td>" + m.players.map(function (p) {
+        "<td class='num'>" + num(m.pot) + "</td><td class='players'>" + m.players.map(function (p) {
           return p.nickname === "Computer" ? "<span class='muted'>Computer</span>"
             : "<span class='plink' data-player='" + esc(p.id) + "'>" + esc(p.nickname) + "</span>";
         }).join(", ") + "</td>" +
@@ -474,11 +478,25 @@ function statCard(label, value, hint, tone) {
   return "<div class='stat " + (tone || "") + "'><div class='label'>" + esc(label) + "</div><div class='value'>" + value +
     "</div><div class='hint'>" + (hint || "&nbsp;") + "</div></div>";
 }
-function chart(days) {
-  var w = 760, h = 230, left = 34, right = 10, bottom = 26, top = 14;
+/* Drawn at the box's real width, so the bars spread across any screen while the text keeps its size. */
+var chartDays = null;
+var chartWidth = 0;
+function drawChart() {
+  var box = document.getElementById("chartBox");
+  if (!box || !chartDays) return;
+  chartWidth = box.clientWidth;
+  box.innerHTML = chart(chartDays, chartWidth || 760);
+}
+new ResizeObserver(function () {
+  var box = document.getElementById("chartBox");
+  if (box && box.clientWidth !== chartWidth) drawChart();
+}).observe(document.getElementById("view"));
+function chart(days, w) {
+  var h = 260, left = 34, right = 10, bottom = 26, top = 14;
   var max = Math.max.apply(null, [1].concat(days.map(function (d) { return Math.max(d.signups, d.matches); })));
   var slot = (w - left - right) / days.length;
-  var bw = Math.max(3, Math.min(16, slot / 2 - 3));
+  var bw = Math.max(3, Math.min(24, slot / 2 - 3));
+  var every = Math.max(1, Math.ceil(40 / slot));
   var plot = h - bottom - top;
   var out = "";
   [0, 0.5, 1].forEach(function (f) {
@@ -493,12 +511,11 @@ function chart(days) {
       esc(d.day) + ": " + d.signups + " new players</title></rect>";
     out += "<rect class='bar-b' rx='2' x='" + (cx + 1) + "' y='" + (top + plot - hm) + "' width='" + bw + "' height='" + hm + "'><title>" +
       esc(d.day) + ": " + d.matches + " matches</title></rect>";
-    if (days.length <= 14 || i % 2 === 0) {
+    if ((days.length - 1 - i) % every === 0) {
       out += "<text x='" + cx + "' y='" + (h - 8) + "' class='axis' text-anchor='middle'>" + d.day.slice(8, 10) + "/" + d.day.slice(5, 7) + "</text>";
     }
   });
-  return "<svg class='chart' viewBox='0 0 " + w + " " + h + "' role='img' aria-label='New players and matches per day'>" + out + "</svg>" +
-    "<div class='legend'><span><i class='dot a'></i>New players</span><span><i class='dot b'></i>Matches</span><span>Days in Dhaka time</span></div>";
+  return "<svg class='chart' width='" + w + "' height='" + h + "' viewBox='0 0 " + w + " " + h + "' role='img' aria-label='New players and matches per day'>" + out + "</svg>";
 }
 
 async function viewDashboard() {
@@ -517,11 +534,14 @@ async function viewDashboard() {
       statCard("Coins in play", num(stats.coinsInCirculation), "across all wallets") +
       statCard("Banned", num(p.banned), "accounts blocked", p.banned > 0 ? "warn" : "") +
     "</div>" +
-    "<div class='card'><div class='card-head'><h2>Activity - last 14 days</h2></div><div class='card-body'>" + chart(activity) + "</div></div>" +
+    "<div class='card'><div class='card-head'><h2>Activity - last 14 days</h2></div><div class='card-body'><div id='chartBox'></div>" +
+      "<div class='legend'><span><i class='dot a'></i>New players</span><span><i class='dot b'></i>Matches</span><span>Days in Dhaka time</span></div></div></div>" +
     "<div class='two'>" +
       "<div class='card'><div class='card-head'><h2>Newest players</h2><a href='#/players'>View all</a></div>" + playersTable(players.rows) + "</div>" +
       "<div class='card'><div class='card-head'><h2>Latest matches</h2><a href='#/matches'>View all</a></div>" + matchesTable(matches.rows) + "</div>" +
     "</div>";
+  chartDays = activity;
+  drawChart();
   bindPlayerLinks($("#view"));
 }
 
