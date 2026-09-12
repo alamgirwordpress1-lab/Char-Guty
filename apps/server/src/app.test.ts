@@ -191,20 +191,27 @@ describe("admin routes", () => {
     });
 
   it("do not exist unless ADMIN_TOKEN is set", async () => {
-    const res = await app.inject({ method: "GET", url: "/admin/users?q=a" });
+    const res = await app.inject({ method: "GET", url: "/admin/players" });
     expect(res.statusCode).toBe(404);
   });
 
-  it("refuse a missing or wrong token", async () => {
-    expect((await adminApp.inject({ method: "GET", url: "/admin/users?q=a" })).statusCode).toBe(
-      401,
-    );
-    const wrong = await adminApp.inject({
-      method: "GET",
-      url: "/admin/users?q=a",
-      headers: { authorization: "Bearer nope" },
-    });
-    expect(wrong.statusCode).toBe(401);
+  it("refuse a missing or wrong token on every data route", async () => {
+    for (const url of [
+      "/admin/stats",
+      "/admin/activity",
+      "/admin/players",
+      "/admin/matches",
+      "/admin/ledger",
+      "/admin/ledger/reasons",
+    ]) {
+      expect((await adminApp.inject({ method: "GET", url })).statusCode).toBe(401);
+      const wrong = await adminApp.inject({
+        method: "GET",
+        url,
+        headers: { authorization: "Bearer nope" },
+      });
+      expect(wrong.statusCode).toBe(401);
+    }
   });
 
   it("serve the console page without a token, since it asks for one itself", async () => {
@@ -213,7 +220,7 @@ describe("admin routes", () => {
     expect(res.body).toContain("Char Guty admin");
   });
 
-  it("find a player, ban them, and lock them out of /me", async () => {
+  it("list and find a player, ban them out of /me, and let them back in", async () => {
     const signup = await adminApp.inject({
       method: "POST",
       url: "/auth/guest",
@@ -221,30 +228,54 @@ describe("admin routes", () => {
     });
     const { userId, token } = signup.json() as { userId: string; token: string };
 
-    const found = await asAdmin(`/admin/users?q=banme`);
-    expect(found.json()).toHaveLength(1);
+    const found = await asAdmin("/admin/players?q=banme");
+    const page = found.json() as {
+      rows: { id: string }[];
+      total: number;
+      page: number;
+      pageSize: number;
+    };
+    expect(page.rows.map((r) => r.id)).toEqual([userId]);
+    expect(page).toMatchObject({ total: 1, page: 1, pageSize: 25 });
 
-    const banned = await asAdmin(`/admin/users/${userId}/ban`, "POST", { reason: "testing" });
+    const banned = await asAdmin(`/admin/players/${userId}/ban`, "POST", { reason: "testing" });
     expect(banned.json()).toEqual({ ok: true, banned: true });
+    expect((await asAdmin("/admin/players?status=banned")).json()).toMatchObject({ total: 1 });
 
-    const me = await adminApp.inject({
-      method: "GET",
-      url: "/me",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(me.statusCode).toBe(403);
+    const me = () =>
+      adminApp.inject({ method: "GET", url: "/me", headers: { authorization: `Bearer ${token}` } });
+    expect((await me()).statusCode).toBe(403);
 
-    await asAdmin(`/admin/users/${userId}/unban`, "POST");
-    const after = await adminApp.inject({
-      method: "GET",
-      url: "/me",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(after.statusCode).toBe(200);
+    await asAdmin(`/admin/players/${userId}/unban`, "POST");
+    expect((await me()).statusCode).toBe(200);
   });
 
-  it("404 on a user who does not exist", async () => {
-    const res = await asAdmin(`/admin/users/${randomUUID()}`);
-    expect(res.statusCode).toBe(404);
+  it("serve the dashboard numbers, activity, matches and transactions", async () => {
+    const stats = (await asAdmin("/admin/stats")).json() as {
+      players: { total: number };
+      coinsInCirculation: number;
+    };
+    expect(stats.players.total).toBeGreaterThan(0);
+    expect(stats.coinsInCirculation).toBeGreaterThan(0);
+
+    expect((await asAdmin("/admin/activity?days=7")).json()).toHaveLength(7);
+    expect((await asAdmin("/admin/matches")).json()).toMatchObject({ page: 1 });
+
+    const ledgerPage = (await asAdmin("/admin/ledger?reason=signup_bonus")).json() as {
+      rows: { reason: string }[];
+    };
+    expect(ledgerPage.rows.every((r) => r.reason === "signup_bonus")).toBe(true);
+    expect((await asAdmin("/admin/ledger/reasons")).json()).toContain("signup_bonus");
+  });
+
+  it("ignore filter values outside the known choices", async () => {
+    const res = await asAdmin("/admin/players?status=bogus&sort=bogus&pageSize=-5");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ pageSize: 1 });
+  });
+
+  it("404 on a player who does not exist", async () => {
+    expect((await asAdmin(`/admin/players/${randomUUID()}`)).statusCode).toBe(404);
+    expect((await asAdmin("/admin/players/not-a-uuid")).statusCode).toBe(404);
   });
 });

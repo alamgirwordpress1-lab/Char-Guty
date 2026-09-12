@@ -12,7 +12,16 @@ import {
   DailyAdRewardCapError,
   DuplicateAdRewardError,
 } from "./db/adRewardService.js";
-import { getUserDetail, searchUsers, setUserBanned } from "./db/adminService.js";
+import {
+  getAdminStats,
+  getDailyActivity,
+  getUserDetail,
+  ledgerReasons,
+  listLedger,
+  listMatches,
+  listPlayers,
+  setUserBanned,
+} from "./db/adminService.js";
 import { getLeaderboard } from "./db/leaderboardRepository.js";
 import type { Database } from "./db/types.js";
 import { upsertUser } from "./db/userService.js";
@@ -21,6 +30,11 @@ import { getBalance } from "./db/walletService.js";
 function bearerToken(request: FastifyRequest): string | undefined {
   const authorization = request.headers.authorization;
   return authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
+}
+
+/** A query value from a fixed set of choices; anything else counts as not given. */
+function pick<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
+  return allowed.find((choice) => choice === value);
 }
 
 export interface BuildAppOptions {
@@ -226,42 +240,100 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
       reply.code(401).send({ error: "unauthorized" });
       return false;
     };
+    const paging = (query: Record<string, string | undefined>) => ({
+      page: Number(query.page) || 1,
+      pageSize: Number(query.pageSize) || 25,
+    });
 
     app.get("/admin", async (_request, reply) => {
       reply.type("text/html; charset=utf-8");
       return adminPage();
     });
 
-    app.get("/admin/users", async (request, reply) => {
+    app.get("/admin/stats", async (request, reply) => {
       if (!requireAdmin(request, reply)) return;
-      const { q } = request.query as { q?: string };
-      return searchUsers(db, q ?? "");
+      const stats = await getAdminStats(db);
+      // Who is online lives in the matchmaker's memory, not the database. If that query
+      // fails the dashboard shows it as unknown instead of claiming nobody is playing.
+      const live = await matchMaker
+        .query({ name: "guti" })
+        .then((rooms) => ({
+          rooms: rooms.length,
+          players: rooms.reduce((sum, r) => sum + r.clients, 0),
+        }))
+        .catch(() => null);
+      return { ...stats, live };
     });
 
-    app.get("/admin/users/:id", async (request, reply) => {
+    app.get("/admin/activity", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const { days } = request.query as { days?: string };
+      return getDailyActivity(db, Math.min(Math.max(Math.trunc(Number(days) || 14), 1), 90));
+    });
+
+    app.get("/admin/players", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const query = request.query as Record<string, string | undefined>;
+      return listPlayers(db, {
+        q: query.q,
+        status: pick(query.status, ["all", "active", "banned"] as const),
+        type: pick(query.type, ["all", "guest", "registered"] as const),
+        sort: pick(query.sort, ["newest", "oldest", "coins", "winPoints"] as const),
+        ...paging(query),
+      });
+    });
+
+    app.get("/admin/players/:id", async (request, reply) => {
       if (!requireAdmin(request, reply)) return;
       const { id } = request.params as { id: string };
       const detail = await getUserDetail(db, id);
       if (detail === null) {
         reply.code(404);
-        return { error: "user not found" };
+        return { error: "player not found" };
       }
       return detail;
     });
 
     for (const banned of [true, false]) {
-      app.post(`/admin/users/:id/${banned ? "ban" : "unban"}`, async (request, reply) => {
+      app.post(`/admin/players/:id/${banned ? "ban" : "unban"}`, async (request, reply) => {
         if (!requireAdmin(request, reply)) return;
         const { id } = request.params as { id: string };
         const body = request.body as { reason?: string } | undefined;
         const found = await setUserBanned(db, id, banned, body?.reason);
         if (!found) {
           reply.code(404);
-          return { error: "user not found" };
+          return { error: "player not found" };
         }
         return { ok: true, banned };
       });
     }
+
+    app.get("/admin/matches", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const query = request.query as Record<string, string | undefined>;
+      return listMatches(db, {
+        q: query.q,
+        mode: pick(query.mode, ["all", "friend", "random", "computer"] as const),
+        status: pick(query.status, ["all", "finished", "unfinished"] as const),
+        ...paging(query),
+      });
+    });
+
+    app.get("/admin/ledger", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const query = request.query as Record<string, string | undefined>;
+      return listLedger(db, {
+        q: query.q,
+        currency: pick(query.currency, ["all", "coin", "wp"] as const),
+        reason: query.reason,
+        ...paging(query),
+      });
+    });
+
+    app.get("/admin/ledger/reasons", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      return ledgerReasons(db);
+    });
   }
 
   return app;
