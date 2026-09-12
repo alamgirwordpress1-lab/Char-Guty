@@ -15,3 +15,6 @@ Thumbs.db
 pnpm-debug.log*
 .vite/
 .turbo/
+
+# Local scratch scripts (e.g. a stand-in Postgres), never part of a build
+apps/server/_run/
