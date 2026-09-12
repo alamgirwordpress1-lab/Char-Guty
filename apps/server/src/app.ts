@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import cors from "@fastify/cors";
 import { matchMaker } from "colyseus";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { adminPage } from "./admin/adminPage.js";
+import { adminToken, isAdminToken } from "./admin/adminAuth.js";
 import { getVerifierKeys } from "./ads/googleKeys.js";
 import { parseCallbackQuery, verifySignature } from "./ads/verifySignature.js";
 import { issueGuestToken, verifyAuthToken } from "./auth/auth.js";
@@ -10,6 +12,7 @@ import {
   DailyAdRewardCapError,
   DuplicateAdRewardError,
 } from "./db/adRewardService.js";
+import { getUserDetail, searchUsers, setUserBanned } from "./db/adminService.js";
 import { getLeaderboard } from "./db/leaderboardRepository.js";
 import type { Database } from "./db/types.js";
 import { upsertUser } from "./db/userService.js";
@@ -72,6 +75,10 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
         nickname: nickname ?? "Player",
         isGuest: verified.isGuest,
       });
+      if (user.bannedAt !== null) {
+        reply.code(403);
+        return { error: "account banned" };
+      }
       const balance = await getBalance(db, user.id);
       return { userId: user.id, nickname: user.nickname, ...balance };
     } catch {
@@ -208,6 +215,53 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
         throw err;
       }
     });
+  }
+
+  // Admin console: one page plus the routes it calls, all behind a single shared token
+  // from the environment. With no ADMIN_TOKEN set none of this is registered at all.
+  const expectedAdminToken = adminToken();
+  if (expectedAdminToken !== undefined) {
+    const requireAdmin = (request: FastifyRequest, reply: FastifyReply): boolean => {
+      if (isAdminToken(expectedAdminToken, bearerToken(request))) return true;
+      reply.code(401).send({ error: "unauthorized" });
+      return false;
+    };
+
+    app.get("/admin", async (_request, reply) => {
+      reply.type("text/html; charset=utf-8");
+      return adminPage();
+    });
+
+    app.get("/admin/users", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const { q } = request.query as { q?: string };
+      return searchUsers(db, q ?? "");
+    });
+
+    app.get("/admin/users/:id", async (request, reply) => {
+      if (!requireAdmin(request, reply)) return;
+      const { id } = request.params as { id: string };
+      const detail = await getUserDetail(db, id);
+      if (detail === null) {
+        reply.code(404);
+        return { error: "user not found" };
+      }
+      return detail;
+    });
+
+    for (const banned of [true, false]) {
+      app.post(`/admin/users/:id/${banned ? "ban" : "unban"}`, async (request, reply) => {
+        if (!requireAdmin(request, reply)) return;
+        const { id } = request.params as { id: string };
+        const body = request.body as { reason?: string } | undefined;
+        const found = await setUserBanned(db, id, banned, body?.reason);
+        if (!found) {
+          reply.code(404);
+          return { error: "user not found" };
+        }
+        return { ok: true, banned };
+      });
+    }
   }
 
   return app;

@@ -23,6 +23,10 @@ export const users = pgTable(
     nickname: text("nickname").notNull(),
     isGuest: boolean("is_guest").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set when an admin bans the account: it blocks sign-in and room joins, and is
+    // nullable rather than a boolean so the moment of the ban is part of the record.
+    bannedAt: timestamp("banned_at", { withTimezone: true }),
+    banReason: text("ban_reason"),
   },
   (t) => [uniqueIndex("users_provider_provider_id_key").on(t.provider, t.providerId)],
 );

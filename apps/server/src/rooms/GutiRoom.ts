@@ -136,6 +136,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
       nickname: parsed.nickname,
       isGuest: verified.isGuest,
     });
+    // A banned account is turned away here, before it can take a seat or stake coins.
+    if (user.bannedAt !== null) throw new Error("account banned");
     return { userId: user.id, nickname: parsed.nickname, isGuest: verified.isGuest };
   }
 

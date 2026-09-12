@@ -17,6 +17,7 @@ export interface User {
   readonly providerId: string;
   readonly nickname: string;
   readonly isGuest: boolean;
+  readonly bannedAt: Date | null;
 }
 
 /** Upserts by (provider, providerId); grants the one-time signup bonus only on first creation. */

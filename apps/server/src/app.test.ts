@@ -166,3 +166,85 @@ describe("GET /leaderboard", () => {
     expect((res.json() as { period: string }).period).toBe("week");
   });
 });
+
+describe("admin routes", () => {
+  let adminApp: FastifyInstance;
+  const TOKEN = "admin-test-token";
+
+  beforeAll(async () => {
+    process.env.ADMIN_TOKEN = TOKEN;
+    adminApp = buildApp({ db });
+    delete process.env.ADMIN_TOKEN;
+    await adminApp.ready();
+  });
+
+  const asAdmin = (
+    url: string,
+    method: "GET" | "POST" = "GET",
+    payload?: Record<string, unknown>,
+  ) =>
+    adminApp.inject({
+      method,
+      url,
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload,
+    });
+
+  it("do not exist unless ADMIN_TOKEN is set", async () => {
+    const res = await app.inject({ method: "GET", url: "/admin/users?q=a" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("refuse a missing or wrong token", async () => {
+    expect((await adminApp.inject({ method: "GET", url: "/admin/users?q=a" })).statusCode).toBe(
+      401,
+    );
+    const wrong = await adminApp.inject({
+      method: "GET",
+      url: "/admin/users?q=a",
+      headers: { authorization: "Bearer nope" },
+    });
+    expect(wrong.statusCode).toBe(401);
+  });
+
+  it("serve the console page without a token, since it asks for one itself", async () => {
+    const res = await adminApp.inject({ method: "GET", url: "/admin" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Char Guty admin");
+  });
+
+  it("find a player, ban them, and lock them out of /me", async () => {
+    const signup = await adminApp.inject({
+      method: "POST",
+      url: "/auth/guest",
+      payload: { nickname: "banme" },
+    });
+    const { userId, token } = signup.json() as { userId: string; token: string };
+
+    const found = await asAdmin(`/admin/users?q=banme`);
+    expect(found.json()).toHaveLength(1);
+
+    const banned = await asAdmin(`/admin/users/${userId}/ban`, "POST", { reason: "testing" });
+    expect(banned.json()).toEqual({ ok: true, banned: true });
+
+    const me = await adminApp.inject({
+      method: "GET",
+      url: "/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode).toBe(403);
+
+    await asAdmin(`/admin/users/${userId}/unban`, "POST");
+    const after = await adminApp.inject({
+      method: "GET",
+      url: "/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(after.statusCode).toBe(200);
+  });
+
+  it("404 on a user who does not exist", async () => {
+    const res = await asAdmin(`/admin/users/${randomUUID()}`);
+    expect(res.statusCode).toBe(404);
+  });
+});
