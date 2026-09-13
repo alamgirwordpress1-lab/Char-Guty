@@ -1,5 +1,11 @@
-import { claimInstantAdReward, claimMockAdReward } from "./net.js";
-import { isFacebookInstant, showInstantAd } from "./platform.js";
+import { claimCrazyGamesAdReward, claimInstantAdReward, claimMockAdReward } from "./net.js";
+import type { AdRewardResult } from "./net.js";
+import {
+  isCrazyGamesBuild,
+  isFacebookInstant,
+  showCrazyGamesAd,
+  showInstantAd,
+} from "./platform.js";
 import { getSession, updateBalance } from "../state/session.js";
 
 export type RewardedAdResult = "rewarded" | "closed" | "failed";
@@ -14,18 +20,7 @@ export interface AdsService {
 /** Web/dev: calls the server's ADS_MOCK-gated endpoint instead of a real ad SDK. */
 class WebAdsService implements AdsService {
   async showRewarded(): Promise<RewardedAdResult> {
-    const session = getSession();
-    let result;
-    try {
-      result = await claimMockAdReward(session.token);
-    } catch {
-      return "failed";
-    }
-    if (!result.ok) return "failed";
-    if (result.coins !== undefined) {
-      updateBalance(result.coins, result.winPoints ?? session.winPoints);
-    }
-    return "rewarded";
+    return creditReward(claimMockAdReward);
   }
 
   async showInterstitial(): Promise<void> {
@@ -50,17 +45,7 @@ class InstantGamesAdsService implements AdsService {
     } catch {
       return "closed";
     }
-    const session = getSession();
-    try {
-      const result = await claimInstantAdReward(session.token, crypto.randomUUID());
-      if (!result.ok) return "failed";
-      if (result.coins !== undefined) {
-        updateBalance(result.coins, result.winPoints ?? session.winPoints);
-      }
-      return "rewarded";
-    } catch {
-      return "failed";
-    }
+    return creditReward((token) => claimInstantAdReward(token, crypto.randomUUID()));
   }
 
   async showInterstitial(): Promise<void> {
@@ -69,6 +54,41 @@ class InstantGamesAdsService implements AdsService {
   }
 }
 
+/**
+ * CrazyGames: videos through their SDK. Like Facebook's they give the server no proof, so
+ * the claim is trusted and held to the daily cap - and it is only made once a video has
+ * played to the end, as CrazyGames requires.
+ */
+class CrazyGamesAdsService implements AdsService {
+  async showRewarded(): Promise<RewardedAdResult> {
+    if (!(await showCrazyGamesAd("rewarded"))) return "failed";
+    return creditReward((token) => claimCrazyGamesAdReward(token, crypto.randomUUID()));
+  }
+
+  async showInterstitial(): Promise<void> {
+    await showCrazyGamesAd("midgame");
+  }
+}
+
+/** Claims a watched video's coins from the server and shows the new balance. */
+async function creditReward(
+  claim: (token: string) => Promise<AdRewardResult>,
+): Promise<RewardedAdResult> {
+  const session = getSession();
+  try {
+    const result = await claim(session.token);
+    if (!result.ok) return "failed";
+    if (result.coins !== undefined) {
+      updateBalance(result.coins, result.winPoints ?? session.winPoints);
+    }
+    return "rewarded";
+  } catch {
+    return "failed";
+  }
+}
+
 export const ads: AdsService = isFacebookInstant
   ? new InstantGamesAdsService()
-  : new WebAdsService();
+  : isCrazyGamesBuild
+    ? new CrazyGamesAdsService()
+    : new WebAdsService();

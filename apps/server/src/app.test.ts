@@ -112,21 +112,24 @@ describe("POST /ads/mock-reward", () => {
   });
 });
 
-describe("POST /ads/instant-reward", () => {
-  let instantApp: FastifyInstance;
+describe.each([
+  { path: "/ads/instant-reward", flag: "INSTANT_AD_REWARDS" },
+  { path: "/ads/crazygames-reward", flag: "CRAZYGAMES_AD_REWARDS" },
+])("POST $path", ({ path, flag }) => {
+  let flaggedApp: FastifyInstance;
 
   beforeAll(async () => {
-    process.env.INSTANT_AD_REWARDS = "true";
-    instantApp = buildApp({ db });
-    delete process.env.INSTANT_AD_REWARDS;
-    await instantApp.ready();
+    process.env[flag] = "true";
+    flaggedApp = buildApp({ db });
+    delete process.env[flag];
+    await flaggedApp.ready();
   });
 
-  it("does not exist unless INSTANT_AD_REWARDS is on", async () => {
+  it("does not exist unless its flag is on", async () => {
     const token = await guestToken();
     const res = await app.inject({
       method: "POST",
-      url: "/ads/instant-reward",
+      url: path,
       headers: { authorization: `Bearer ${token}` },
       payload: { transactionId: randomUUID() },
     });
@@ -137,9 +140,9 @@ describe("POST /ads/instant-reward", () => {
     const token = await guestToken();
     const transactionId = randomUUID();
     const claim = () =>
-      instantApp.inject({
+      flaggedApp.inject({
         method: "POST",
-        url: "/ads/instant-reward",
+        url: path,
         headers: { authorization: `Bearer ${token}` },
         payload: { transactionId },
       });

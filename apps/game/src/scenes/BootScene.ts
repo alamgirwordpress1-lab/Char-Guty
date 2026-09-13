@@ -1,11 +1,12 @@
 import Phaser from "phaser";
 import { GAME_WIDTH } from "../config.js";
 import { getMockGame } from "../dev.js";
+import { bindSound } from "../services/audio.js";
 import { currentFirebaseSession, isFirebaseConfigured } from "../services/auth.js";
 import { fetchWallet } from "../services/net.js";
-import { reportLoadingProgress, startPlatformGame } from "../services/platform.js";
+import { isCrazyGames, reportLoadingProgress, startPlatformGame } from "../services/platform.js";
 import { forgetSession, loadSession, saveSession } from "../services/sessionStore.js";
-import { isSoundOn } from "../services/settings.js";
+import { completeSignIn, guestSignIn } from "../services/signIn.js";
 import { setSession } from "../state/session.js";
 import { COLOR, FONT } from "../ui/theme.js";
 import { glossyButton } from "../ui/widgets.js";
@@ -98,7 +99,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     document.getElementById("boot-loader")?.remove();
     this.generatePlaceholders();
-    this.sound.mute = !isSoundOn();
+    bindSound(this.sound);
     void this.enterGame();
   }
 
@@ -118,6 +119,10 @@ export class BootScene extends Phaser.Scene {
         width: 340,
         height: 96,
       });
+      return;
+    }
+    if (restored === "signed-out" && isCrazyGames() && (await signInAsGuest())) {
+      this.scene.start("Home");
       return;
     }
     this.scene.start(restored === "signed-in" ? "Home" : "Login");
@@ -143,6 +148,20 @@ async function waitForFont(): Promise<void> {
   ]);
   const giveUp = new Promise((resolve) => setTimeout(resolve, 4000));
   await Promise.race([loads, giveUp]).catch(() => undefined);
+}
+
+/**
+ * CrazyGames wants players dropped straight into the game, so a first visit there starts
+ * as a guest with no sign-in screen. If that fails, the screen is still there to retry.
+ */
+async function signInAsGuest(): Promise<boolean> {
+  try {
+    await completeSignIn(guestSignIn(), true);
+    return true;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
 }
 
 /** Signs back in with the account this device remembers; forgets it only if it's no longer valid. */

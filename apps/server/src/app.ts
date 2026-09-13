@@ -176,14 +176,19 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
 
   // Rewards the client says it earned, so each route stays off unless its env flag is set:
   // ADS_MOCK for local testing without an ad network, INSTANT_AD_REWARDS for Facebook
-  // Instant Games, whose SDK gives no server-side proof a video was watched. The daily
-  // cap is what stops either from being farmed.
+  // Instant Games and CRAZYGAMES_AD_REWARDS for CrazyGames, whose SDKs give no server-side
+  // proof a video was watched. The daily cap is what stops any of them from being farmed.
   const clientRewardRoutes = [
     { enabled: process.env.ADS_MOCK === "true", path: "/ads/mock-reward", network: "mock" },
     {
       enabled: process.env.INSTANT_AD_REWARDS === "true",
       path: "/ads/instant-reward",
       network: "fb_instant",
+    },
+    {
+      enabled: process.env.CRAZYGAMES_AD_REWARDS === "true",
+      path: "/ads/crazygames-reward",
+      network: "crazygames",
     },
   ];
   for (const route of clientRewardRoutes) {

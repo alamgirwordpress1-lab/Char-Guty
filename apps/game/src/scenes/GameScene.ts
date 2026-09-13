@@ -15,6 +15,7 @@ import { GutiView, restingAngle } from "../game/GutiView.js";
 import type { Side } from "../game/GutiView.js";
 import { ads } from "../services/ads.js";
 import { fetchWallet, reconnectRoom } from "../services/net.js";
+import { gameplayStarted, gameplayStopped } from "../services/platform.js";
 import type {
   EventsMsg,
   MatchEndedMsg,
@@ -139,6 +140,7 @@ export class GameScene extends Phaser.Scene {
     const initial = data.initialState;
     if (initial !== undefined) this.enqueue(() => this.applyState(initial));
     if (!this.offline) void this.refreshWallet();
+    gameplayStarted();
   }
 
   override update(): void {
@@ -683,8 +685,9 @@ export class GameScene extends Phaser.Scene {
   // ---- end of game / leaving / disconnect ----
 
   private showRoundOver(payload: MatchEndedMsg, nextRoundAt: number): void {
-    // Hook point: between one game and the next is where a real interstitial SDK would
-    // show one. No-op on web for now.
+    // Between one game and the next is where an interstitial goes: Facebook and CrazyGames
+    // show one, the plain web build has none. Play has stopped first, so it interrupts nothing.
+    gameplayStopped();
     void ads.showInterstitial();
     if (!this.offline) void this.refreshWallet();
     this.roundOver?.container.destroy();
@@ -756,6 +759,7 @@ export class GameScene extends Phaser.Scene {
     if (this.roundOver === null) return;
     this.roundOver.container.destroy();
     this.roundOver = null;
+    gameplayStarted();
     // The new game's stake has just been charged.
     if (!this.offline) void this.refreshWallet();
   }
@@ -830,6 +834,7 @@ export class GameScene extends Phaser.Scene {
 
   private cleanup(): void {
     this.alive = false;
+    gameplayStopped();
     this.aim = null;
     this.roundOver = null;
     this.room.removeAllListeners();

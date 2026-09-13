@@ -69,6 +69,14 @@ export function claimInstantAdReward(
   return claimAdReward("/ads/instant-reward", token, { transactionId });
 }
 
+/** A rewarded video watched on CrazyGames (route only exists when CRAZYGAMES_AD_REWARDS=true). */
+export function claimCrazyGamesAdReward(
+  token: string,
+  transactionId: string,
+): Promise<AdRewardResult> {
+  return claimAdReward("/ads/crazygames-reward", token, { transactionId });
+}
+
 async function claimAdReward(path: string, token: string, body: object): Promise<AdRewardResult> {
   const res = await fetch(`${SERVER_HTTP_URL}${path}`, {
     method: "POST",

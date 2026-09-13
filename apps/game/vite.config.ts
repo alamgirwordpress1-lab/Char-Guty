@@ -1,24 +1,29 @@
 import { defineConfig, loadEnv } from "vite";
 import type { Plugin } from "vite";
 
-/** Inside Facebook the Instant Games SDK must load before the game's own script. */
-function instantGamesSdk(): Plugin {
+const INSTANT_GAMES_SDK = "https://connect.facebook.net/en_US/fbinstant.8.0.js";
+const CRAZYGAMES_SDK = "https://sdk.crazygames.com/crazygames-sdk-v3.js";
+
+/** Where each platform build goes; any other mode is a dev build in dist/, with sourcemaps. */
+const OUT_DIRS: Record<string, string> = {
+  fbinstant: "build/fbinstant",
+  crazygames: "build/crazygames",
+  android: "build/android",
+  web: "build/web",
+};
+
+/** Inside Facebook or CrazyGames, the host's SDK must load before the game's own script. */
+function platformSdk(src: string): Plugin {
   return {
-    name: "char-guty:instant-games-sdk",
-    transformIndexHtml: () => [
-      {
-        tag: "script",
-        attrs: { src: "https://connect.facebook.net/en_US/fbinstant.8.0.js" },
-        injectTo: "head-prepend",
-      },
-    ],
+    name: "char-guty:platform-sdk",
+    transformIndexHtml: () => [{ tag: "script", attrs: { src }, injectTo: "head-prepend" }],
   };
 }
 
 /**
  * Only the browser build is installable: the manifest and service worker are what let
  * Chrome offer "Add to Home screen", and they would be dead weight (or interfere) inside
- * Facebook's iframe and Capacitor's file:// shell.
+ * Facebook's or CrazyGames' frame and Capacitor's file:// shell.
  */
 function webAppManifest(siteUrl: string): Plugin {
   const card = `${siteUrl}share-card.png`;
@@ -61,30 +66,24 @@ function webAppManifest(siteUrl: string): Plugin {
   };
 }
 
+function modePlugins(mode: string, siteUrl: string): Plugin[] {
+  if (mode === "fbinstant") return [platformSdk(INSTANT_GAMES_SDK)];
+  if (mode === "crazygames") return [platformSdk(CRAZYGAMES_SDK)];
+  if (mode === "web") return [webAppManifest(siteUrl)];
+  return [];
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
-  const fbinstant = mode === "fbinstant";
-  const android = mode === "android";
-  const web = mode === "web";
   return {
-    // Relative URLs: Facebook serves the bundle from its own path, Android from a file
-    // path, and GitHub Pages from a /<repo>/ subpath.
+    // Relative URLs: Facebook and CrazyGames serve the bundle from their own paths, Android
+    // from a file path, and GitHub Pages from a /<repo>/ subpath.
     base: "./",
-    plugins: fbinstant
-      ? [instantGamesSdk()]
-      : web
-        ? [webAppManifest(env.VITE_SITE_URL ?? "/")]
-        : [],
+    plugins: modePlugins(mode, env.VITE_SITE_URL ?? "/"),
     server: { port: 5173 },
     build: {
-      outDir: fbinstant
-        ? "build/fbinstant"
-        : android
-          ? "build/android"
-          : web
-            ? "build/web"
-            : "dist",
-      sourcemap: !fbinstant && !android && !web,
+      outDir: OUT_DIRS[mode] ?? "dist",
+      sourcemap: !(mode in OUT_DIRS),
     },
   };
 });

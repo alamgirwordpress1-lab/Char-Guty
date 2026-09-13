@@ -1,4 +1,5 @@
 import type Phaser from "phaser";
+import { applyMute } from "../services/audio.js";
 import { isSoundOn, setSoundOn } from "../services/settings.js";
 import { TEXT } from "./theme.js";
 import { dialog, glossyButton } from "./widgets.js";
@@ -17,7 +18,7 @@ export function openSettings(scene: Phaser.Scene): void {
     () => {
       const on = !isSoundOn();
       setSoundOn(on);
-      scene.sound.mute = !on;
+      applyMute();
       toggle.setLabel(on ? "ON" : "OFF");
       icon.setTexture(on ? "icon-sound-on" : "icon-sound-off");
     },

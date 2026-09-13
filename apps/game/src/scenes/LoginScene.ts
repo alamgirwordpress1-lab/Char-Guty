@@ -1,17 +1,11 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
 import { isFirebaseConfigured, signInWithFacebook, signInWithGoogle } from "../services/auth.js";
-import { fetchGuestToken, fetchWallet } from "../services/net.js";
-import { saveSession } from "../services/sessionStore.js";
-import { setSession } from "../state/session.js";
+import { completeSignIn, guestSignIn } from "../services/signIn.js";
+import type { SignIn } from "../services/signIn.js";
 import { COLOR, TEXT } from "../ui/theme.js";
 import { glossyButton, menuBackground } from "../ui/widgets.js";
 import type { GameButton } from "../ui/widgets.js";
-
-interface SignIn {
-  readonly token: string;
-  readonly nickname: string;
-}
 
 export class LoginScene extends Phaser.Scene {
   private buttons: GameButton[] = [];
@@ -82,17 +76,7 @@ export class LoginScene extends Phaser.Scene {
     this.setBusy(true);
     this.status.setText("Signing in...").setColor(COLOR.muted);
     try {
-      const { token, nickname } = await attempt;
-      const wallet = await fetchWallet(token, nickname);
-      setSession({
-        userId: wallet.userId,
-        token,
-        nickname: wallet.nickname,
-        isGuest,
-        coins: wallet.coins,
-        winPoints: wallet.winPoints,
-      });
-      saveSession({ token, nickname: wallet.nickname, isGuest });
+      await completeSignIn(attempt, isGuest);
       this.scene.start("Home");
     } catch (err) {
       console.error(err);
@@ -104,11 +88,6 @@ export class LoginScene extends Phaser.Scene {
   private setBusy(busy: boolean): void {
     for (const button of this.buttons) button.setEnabled(!busy);
   }
-}
-
-/** A new guest gets a numbered handle, so the leaderboard isn't a wall of identical names. */
-function guestSignIn(): Promise<SignIn> {
-  return fetchGuestToken(`Guest${Math.floor(1000 + Math.random() * 9000)}`);
 }
 
 function describeSignInError(err: unknown): string {

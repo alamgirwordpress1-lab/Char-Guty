@@ -1,8 +1,10 @@
 /**
  * Generates the game's icon: branding/app-icon.png (1024x1024 - the store icon Facebook,
  * Meta and Google all ask for) plus the public/icon-*.png sizes the web app manifest
- * points at for "Add to Home screen". Same art language as scripts/generate-assets.ts:
- * four gutis (two gold cut faces, two dark rounded backs) on the menu's blue glow.
+ * points at for "Add to Home screen", the link-preview card, and the three covers
+ * CrazyGames asks for (branding/crazygames/). Same art language as
+ * scripts/generate-assets.ts: four gutis (two gold cut faces, two dark rounded backs) on
+ * the menu's blue glow.
  * Re-run with `pnpm -F @char-guty/game exec tsx scripts/generate-icon.ts`.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -35,15 +37,17 @@ function guti(face: "flat" | "round", cx: number, cy: number, rotate: number): s
   </g>`;
 }
 
-function iconSvg(): string {
-  return `<svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <radialGradient id="bg" cx="50%" cy="38%" r="78%">
+/** The menu's blue glow, brightest at (cx, cy). */
+function glow(cx: string, cy: string, r: string): string {
+  return `<radialGradient id="bg" cx="${cx}" cy="${cy}" r="${r}">
         <stop offset="0%" stop-color="#3a7be0"/>
         <stop offset="52%" stop-color="#1a3f94"/>
         <stop offset="100%" stop-color="#0a173f"/>
-      </radialGradient>
-      <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      </radialGradient>`;
+}
+
+/** The gold cut face and the lacquered back that guti() paints with. */
+const GUTI_PAINTS = `<linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#fff6da"/>
         <stop offset="45%" stop-color="#f2c341"/>
         <stop offset="100%" stop-color="#c0810c"/>
@@ -53,21 +57,34 @@ function iconSvg(): string {
         <stop offset="22%" stop-color="#a47645"/>
         <stop offset="55%" stop-color="#5a381d"/>
         <stop offset="100%" stop-color="#1f130a"/>
-      </linearGradient>
-      <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000000" flood-opacity="0.45"/>
-      </filter>
+      </linearGradient>`;
+
+function dropShadow(dy: number, blur: number): string {
+  return `<filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="${dy}" stdDeviation="${blur}" flood-color="#000000" flood-opacity="0.45"/>
+      </filter>`;
+}
+
+/** The game's mark: four gutis around (512, 500), tilted a little. */
+const FOUR_GUTIS = `<g transform="rotate(-12 512 500)">
+        ${guti("flat", 512, 300, 0)}
+        ${guti("round", 712, 500, 90)}
+        ${guti("flat", 512, 700, 180)}
+        ${guti("round", 312, 500, 270)}
+      </g>`;
+
+function iconSvg(): string {
+  return `<svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      ${glow("50%", "38%", "78%")}
+      ${GUTI_PAINTS}
+      ${dropShadow(14, 16)}
     </defs>
     <rect width="${SIZE}" height="${SIZE}" fill="url(#bg)"/>
     <circle cx="512" cy="500" r="392" fill="#0a173f" opacity="0.35"/>
     <circle cx="512" cy="500" r="392" fill="none" stroke="#ffd166" stroke-width="14" opacity="0.55"/>
     <g filter="url(#drop)">
-      <g transform="rotate(-12 512 500)">
-        ${guti("flat", 512, 300, 0)}
-        ${guti("round", 712, 500, 90)}
-        ${guti("flat", 512, 700, 180)}
-        ${guti("round", 312, 500, 270)}
-      </g>
+      ${FOUR_GUTIS}
     </g>
   </svg>`;
 }
@@ -81,40 +98,76 @@ const publicDir = fileURLToPath(new URL("../public", import.meta.url));
 function shareSvg(): string {
   return `<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <radialGradient id="bg" cx="28%" cy="38%" r="86%">
-        <stop offset="0%" stop-color="#3a7be0"/>
-        <stop offset="52%" stop-color="#1a3f94"/>
-        <stop offset="100%" stop-color="#0a173f"/>
-      </radialGradient>
-      <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#fff6da"/>
-        <stop offset="45%" stop-color="#f2c341"/>
-        <stop offset="100%" stop-color="#c0810c"/>
-      </linearGradient>
-      <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#1f130a"/>
-        <stop offset="22%" stop-color="#a47645"/>
-        <stop offset="55%" stop-color="#5a381d"/>
-        <stop offset="100%" stop-color="#1f130a"/>
-      </linearGradient>
-      <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
-      </filter>
+      ${glow("28%", "38%", "86%")}
+      ${GUTI_PAINTS}
+      ${dropShadow(12, 14)}
     </defs>
     <rect width="1200" height="630" fill="url(#bg)"/>
     <g transform="translate(-192 -185) scale(0.66)" filter="url(#drop)">
-      <g transform="rotate(-12 512 500)">
-        ${guti("flat", 512, 300, 0)}
-        ${guti("round", 712, 500, 90)}
-        ${guti("flat", 512, 700, 180)}
-        ${guti("round", 312, 500, 270)}
-      </g>
+      ${FOUR_GUTIS}
     </g>
     <text x="560" y="286" font-family="Segoe UI, Arial, sans-serif" font-size="96" font-weight="700" fill="#ffd166">Char Guty</text>
     <text x="562" y="352" font-family="Segoe UI, Arial, sans-serif" font-size="36" fill="#dce7ff">The classic four-piece game</text>
     <text x="562" y="404" font-family="Segoe UI, Arial, sans-serif" font-size="36" fill="#dce7ff">Play free with your friends</text>
     <rect x="560" y="452" width="290" height="72" rx="36" fill="#2e9a2b" stroke="#18601a" stroke-width="4"/>
     <text x="705" y="500" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" fill="#ffffff">PLAY NOW</text>
+  </svg>`;
+}
+
+interface Cover {
+  readonly file: string;
+  readonly width: number;
+  readonly height: number;
+  /** Centre and scale of the four gutis. */
+  readonly gutis: { readonly x: number; readonly y: number; readonly scale: number };
+  /** Centre line, baseline and size of the title. */
+  readonly title: { readonly x: number; readonly y: number; readonly size: number };
+}
+
+/**
+ * CrazyGames wants three covers with one look, and the game's title as the only words on
+ * them - no "Play now", no badges, no store logos.
+ */
+const COVERS: readonly Cover[] = [
+  {
+    file: "cover-1920x1080.png",
+    width: 1920,
+    height: 1080,
+    gutis: { x: 540, y: 540, scale: 1.1 },
+    title: { x: 1400, y: 600, size: 170 },
+  },
+  {
+    file: "cover-800x1200.png",
+    width: 800,
+    height: 1200,
+    gutis: { x: 400, y: 480, scale: 0.95 },
+    title: { x: 400, y: 1010, size: 120 },
+  },
+  {
+    file: "cover-800x800.png",
+    width: 800,
+    height: 800,
+    gutis: { x: 400, y: 330, scale: 0.72 },
+    title: { x: 400, y: 712, size: 104 },
+  },
+];
+
+function coverSvg({ width, height, gutis, title }: Cover): string {
+  const left = gutis.x - 512 * gutis.scale;
+  const top = gutis.y - 500 * gutis.scale;
+  const glowX = `${Math.round((gutis.x / width) * 100)}%`;
+  const glowY = `${Math.round((gutis.y / height) * 100)}%`;
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      ${glow(glowX, glowY, "80%")}
+      ${GUTI_PAINTS}
+      ${dropShadow(14, 16)}
+    </defs>
+    <rect width="${width}" height="${height}" fill="url(#bg)"/>
+    <g transform="translate(${left} ${top}) scale(${gutis.scale})" filter="url(#drop)">
+      ${FOUR_GUTIS}
+    </g>
+    <text x="${title.x}" y="${title.y}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${title.size}" font-weight="700" fill="#ffd166" filter="url(#drop)">Char Guty</text>
   </svg>`;
 }
 
@@ -138,3 +191,12 @@ console.log(`wrote branding/feature-graphic.png (1024x500, ${feature.length} byt
 const share = await sharp(Buffer.from(shareSvg())).png().toBuffer();
 writeFileSync(`${publicDir}/share-card.png`, share);
 console.log(`wrote public/share-card.png (1200x630, ${share.length} bytes)`);
+
+mkdirSync(`${outDir}/crazygames`, { recursive: true });
+for (const cover of COVERS) {
+  const image = await sharp(Buffer.from(coverSvg(cover)))
+    .png()
+    .toBuffer();
+  writeFileSync(`${outDir}/crazygames/${cover.file}`, image);
+  console.log(`wrote branding/crazygames/${cover.file} (${image.length} bytes)`);
+}

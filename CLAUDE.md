@@ -19,7 +19,7 @@ Traditional Bangladeshi game, 2–4 players online. Free-to-play: coins only. NO
 - packages/game-core: pure rules + sim + vitest, zero deps. Used by server and client.
 - packages/shared: zod schemas, message types, constants.
 - apps/server: Colyseus 0.16 + Fastify, Drizzle + Postgres, Redis. Server-authoritative; client never computes outcomes.
-- apps/game: Phaser 4 + Vite. Targets: web, Capacitor Android, Facebook Instant Games.
+- apps/game: Phaser 4 + Vite. Targets: web, Capacitor Android, Facebook Instant Games, CrazyGames.
 - apps/admin: Next.js (later).
 
 ## Working rules for Claude
