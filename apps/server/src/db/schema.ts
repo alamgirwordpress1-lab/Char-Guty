@@ -18,7 +18,7 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    provider: text("provider").notNull(), // 'firebase' | 'guest'
+    provider: text("provider").notNull(), // 'firebase' | 'guest' | 'crazygames'
     providerId: text("provider_id").notNull(),
     nickname: text("nickname").notNull(),
     isGuest: boolean("is_guest").notNull().default(false),

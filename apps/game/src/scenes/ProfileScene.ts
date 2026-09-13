@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { GAME_WIDTH } from "../config.js";
 import { signOutFirebase } from "../services/auth.js";
 import { fetchWallet } from "../services/net.js";
+import { isCrazyGamesBuild } from "../services/platform.js";
 import { forgetSession } from "../services/sessionStore.js";
 import { clearSession, getSession, updateBalance } from "../state/session.js";
 import { openFreeCoins } from "../ui/freeCoins.js";
@@ -42,7 +43,11 @@ export class ProfileScene extends Phaser.Scene {
       .text(
         cx,
         548,
-        session.isGuest ? "Guest account on this device" : "Signed in with Google or Facebook",
+        session.isGuest
+          ? "Guest account on this device"
+          : isCrazyGamesBuild
+            ? "Signed in with CrazyGames"
+            : "Signed in with Google or Facebook",
         TEXT.small,
       )
       .setOrigin(0.5);
@@ -56,11 +61,14 @@ export class ProfileScene extends Phaser.Scene {
       color: "blue",
       icon: "icon-trophy",
     });
-    glossyButton(this, cx, 1050, "SIGN OUT", () => this.confirmSignOut(), {
-      width: 460,
-      height: 100,
-      color: "gray",
-    });
+    // On CrazyGames, signing in and out is CrazyGames' business, not the game's.
+    if (!isCrazyGamesBuild) {
+      glossyButton(this, cx, 1050, "SIGN OUT", () => this.confirmSignOut(), {
+        width: 460,
+        height: 100,
+        color: "gray",
+      });
+    }
     void this.refreshWallet();
   }
 

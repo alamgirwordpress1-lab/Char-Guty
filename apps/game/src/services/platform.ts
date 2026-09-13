@@ -25,6 +25,16 @@ interface CrazyGamesSettings {
   readonly muteAudio: boolean;
 }
 
+interface CrazyGamesUser {
+  readonly username: string;
+}
+
+interface CrazyGamesRoom {
+  readonly roomId: string;
+  readonly isJoinable: boolean;
+  readonly inviteParams?: Record<string, string>;
+}
+
 /** The slice of the CrazyGames SDK (crazygames-sdk-v3.js) the game uses. */
 interface CrazyGamesSdk {
   init(): Promise<void>;
@@ -35,8 +45,15 @@ interface CrazyGamesSdk {
       callbacks: { adStarted(): void; adFinished(): void; adError(error: unknown): void },
     ): void;
   };
+  readonly user: {
+    readonly isUserAccountAvailable: boolean;
+    getUser(): Promise<CrazyGamesUser | null>;
+    getUserToken(): Promise<string>;
+    addAuthListener(listener: (user: CrazyGamesUser | null) => void): void;
+  };
   readonly game: {
     readonly settings: CrazyGamesSettings;
+    readonly isInstantMultiplayer: boolean;
     addSettingsChangeListener(listener: (settings: CrazyGamesSettings) => void): void;
     loadingStart(): void;
     loadingStop(): void;
@@ -44,6 +61,9 @@ interface CrazyGamesSdk {
     gameplayStop(): void;
     inviteLink(params: Record<string, string>): string;
     getInviteParam(name: string): string | null;
+    updateRoom(room: CrazyGamesRoom): void;
+    leftRoom(): void;
+    addJoinRoomListener(listener: (inviteParams: Partial<Record<string, string>>) => void): void;
   };
 }
 
@@ -57,6 +77,10 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
 let invitedRoomTaken = false;
 let crazyGames: CrazyGamesSdk | null = null;
 let inGameplay = false;
+let reloadAfterGameplay = false;
+let instantMultiplayerTaken = false;
+let reportedRoom: { readonly roomId: string; readonly code: string | null } | null = null;
+let lastRoomReport = "";
 
 /** True when running as a Facebook Instant Game. */
 export const isFacebookInstant = sdk !== undefined;
@@ -118,6 +142,92 @@ export function gameplayStopped(): void {
   if (crazyGames === null || !inGameplay) return;
   inGameplay = false;
   crazyGames.game.gameplayStop();
+  if (reloadAfterGameplay) window.location.reload();
+}
+
+/** Restarts the page now, or once the game under way stops - never in the middle of one. */
+export function reloadBetweenGames(): void {
+  if (inGameplay) reloadAfterGameplay = true;
+  else window.location.reload();
+}
+
+/** The logged-in CrazyGames player's token; null for a guest there, and anywhere else. */
+export async function crazyGamesUserToken(): Promise<string | null> {
+  const crazy = crazyGames;
+  if (crazy === null) return null;
+  try {
+    if (!crazy.user.isUserAccountAvailable || (await crazy.user.getUser()) === null) return null;
+    return await crazy.user.getUserToken();
+  } catch {
+    return null;
+  }
+}
+
+/** Runs when a player logs in to CrazyGames mid-session; logging out reloads the page itself. */
+export function onCrazyGamesLogin(listener: () => void): void {
+  quietly(() =>
+    crazyGames?.user.addAuthListener((user) => {
+      if (user !== null) listener();
+    }),
+  );
+}
+
+/** True once, when CrazyGames started the game straight into multiplayer. */
+export function takeInstantMultiplayer(): boolean {
+  if (instantMultiplayerTaken) return false;
+  instantMultiplayerTaken = true;
+  return crazyGames?.game.isInstantMultiplayer === true;
+}
+
+/**
+ * Tells CrazyGames which room the player is in and whether friends can still join it -
+ * which only a private room, the kind with a code, ever allows. Repeats are dropped.
+ */
+export function reportRoom(roomId: string, code: string | null, joinable: boolean): void {
+  if (crazyGames === null) return;
+  reportedRoom = { roomId, code };
+  const room: CrazyGamesRoom =
+    code === null
+      ? { roomId, isJoinable: false }
+      : { roomId, isJoinable: joinable, inviteParams: { room: code } };
+  const report = JSON.stringify(room);
+  if (report === lastRoomReport) return;
+  lastRoomReport = report;
+  const crazy = crazyGames;
+  quietly(() => crazy.game.updateRoom(room));
+}
+
+/** The room the player is in filled up, or has seats free again. */
+export function reportRoomJoinable(joinable: boolean): void {
+  if (reportedRoom !== null) reportRoom(reportedRoom.roomId, reportedRoom.code, joinable);
+}
+
+/** The player left the room they were in. */
+export function reportLeftRoom(): void {
+  if (crazyGames === null || reportedRoom === null) return;
+  reportedRoom = null;
+  lastRoomReport = "";
+  const crazy = crazyGames;
+  quietly(() => crazy.game.leftRoom());
+}
+
+/** Runs with the room's code when a player accepts a CrazyGames invite while already playing. */
+export function onRoomInvite(listener: (code: string) => void): void {
+  quietly(() =>
+    crazyGames?.game.addJoinRoomListener((params) => {
+      const code = params.room?.toUpperCase();
+      if (code !== undefined && ROOM_CODE.test(code)) listener(code);
+    }),
+  );
+}
+
+/** SDK calls that only report or listen: if one throws, the game must carry on regardless. */
+function quietly(call: () => void): void {
+  try {
+    call();
+  } catch (err) {
+    console.warn(err);
+  }
 }
 
 /** Opens Facebook's friend picker; a friend who accepts launches straight into this room. */

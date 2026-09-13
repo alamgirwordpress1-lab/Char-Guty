@@ -6,7 +6,8 @@ import { adminPage } from "./admin/adminPage.js";
 import { adminToken, isAdminToken } from "./admin/adminAuth.js";
 import { getVerifierKeys } from "./ads/googleKeys.js";
 import { parseCallbackQuery, verifySignature } from "./ads/verifySignature.js";
-import { issueGuestToken, verifyAuthToken } from "./auth/auth.js";
+import { issueCrazyGamesToken, issueGuestToken, verifyAuthToken } from "./auth/auth.js";
+import { verifyCrazyGamesToken } from "./auth/crazyGames.js";
 import {
   claimAdReward,
   DailyAdRewardCapError,
@@ -24,7 +25,7 @@ import {
 } from "./db/adminService.js";
 import { getLeaderboard } from "./db/leaderboardRepository.js";
 import type { Database } from "./db/types.js";
-import { upsertUser } from "./db/userService.js";
+import { signInCrazyGamesUser, upsertUser } from "./db/userService.js";
 import { getBalance } from "./db/walletService.js";
 
 function bearerToken(request: FastifyRequest): string | undefined {
@@ -71,6 +72,38 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
       isGuest: true,
     });
     return { userId: user.id, token: issueGuestToken(guestId), nickname };
+  });
+
+  // CrazyGames players sign in with the token CrazyGames' SDK gives the game. It is checked
+  // against CrazyGames' public key and traded for the game's own session token; the guest
+  // token the device already had, if any, moves that guest's progress to the account.
+  app.post("/auth/crazygames", async (request, reply) => {
+    const body = request.body as { token?: unknown; guestToken?: unknown } | undefined;
+    const crazyGamesToken = body?.token;
+    if (typeof crazyGamesToken !== "string") {
+      reply.code(400);
+      return { error: "missing token" };
+    }
+    let player;
+    try {
+      player = await verifyCrazyGamesToken(crazyGamesToken);
+    } catch {
+      reply.code(401);
+      return { error: "invalid token" };
+    }
+    const guestToken = body?.guestToken;
+    const guest =
+      typeof guestToken === "string" ? await verifyAuthToken(guestToken).catch(() => null) : null;
+    const user = await signInCrazyGamesUser(db, {
+      crazyGamesUserId: player.userId,
+      username: player.username,
+      guestId: guest?.provider === "guest" ? guest.providerId : undefined,
+    });
+    if (user.bannedAt !== null) {
+      reply.code(403);
+      return { error: "account banned" };
+    }
+    return { userId: user.id, token: issueCrazyGamesToken(player.userId), nickname: user.nickname };
   });
 
   app.get("/me", async (request, reply) => {

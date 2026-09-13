@@ -3,33 +3,49 @@ import { getAuth } from "firebase-admin/auth";
 import jwt from "jsonwebtoken";
 
 const GUEST_TOKEN_ISSUER = "char-guty-guest";
+const CRAZYGAMES_TOKEN_ISSUER = "char-guty-crazygames";
 
-function guestSecret(): string {
+function sessionSecret(): string {
   const secret = process.env.AUTH_JWT_SECRET;
   if (secret === undefined) throw new Error("AUTH_JWT_SECRET is not set (see .env.example)");
   return secret;
 }
 
 export interface AuthResult {
-  readonly provider: "firebase" | "guest";
+  readonly provider: "firebase" | "guest" | "crazygames";
   readonly providerId: string;
   readonly isGuest: boolean;
 }
 
 export function issueGuestToken(guestId: string): string {
-  return jwt.sign({ guest: true }, guestSecret(), {
+  return jwt.sign({ guest: true }, sessionSecret(), {
     subject: guestId,
     issuer: GUEST_TOKEN_ISSUER,
     expiresIn: "30d",
   });
 }
 
-function tryVerifyGuestToken(token: string): AuthResult | null {
+/** The game's own session token for a CrazyGames player, once CrazyGames' token checked out. */
+export function issueCrazyGamesToken(crazyGamesUserId: string): string {
+  return jwt.sign({}, sessionSecret(), {
+    subject: crazyGamesUserId,
+    issuer: CRAZYGAMES_TOKEN_ISSUER,
+    expiresIn: "30d",
+  });
+}
+
+/** A token this server signed itself: a guest's, or a CrazyGames player's. */
+function tryVerifySessionToken(token: string): AuthResult | null {
   try {
-    const payload = jwt.verify(token, guestSecret(), { issuer: GUEST_TOKEN_ISSUER });
-    if (typeof payload === "object" && payload.guest === true && typeof payload.sub === "string") {
-      return { provider: "guest", providerId: payload.sub, isGuest: true };
+    const payload = jwt.verify(token, sessionSecret(), {
+      issuer: [GUEST_TOKEN_ISSUER, CRAZYGAMES_TOKEN_ISSUER],
+    });
+    if (typeof payload !== "object" || typeof payload.sub !== "string") return null;
+    if (payload.iss === CRAZYGAMES_TOKEN_ISSUER) {
+      return { provider: "crazygames", providerId: payload.sub, isGuest: false };
     }
+    if (payload.guest === true)
+      return { provider: "guest", providerId: payload.sub, isGuest: true };
     return null;
   } catch {
     return null;
@@ -52,12 +68,13 @@ function ensureFirebaseApp(): void {
 }
 
 /**
- * Tries a guest token first (cheap, local, no network); anything else is verified
- * as a real Firebase ID token. Shared by room onAuth and Fastify route handlers.
+ * Tries the server's own session tokens first (guests and CrazyGames players: cheap, local,
+ * no network); anything else is verified as a real Firebase ID token. Shared by room
+ * onAuth and Fastify route handlers.
  */
 export async function verifyAuthToken(token: string): Promise<AuthResult> {
-  const guest = tryVerifyGuestToken(token);
-  if (guest !== null) return guest;
+  const session = tryVerifySessionToken(token);
+  if (session !== null) return session;
 
   ensureFirebaseApp();
   const decoded = await getAuth().verifyIdToken(token);

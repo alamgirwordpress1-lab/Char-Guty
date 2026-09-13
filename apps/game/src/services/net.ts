@@ -18,6 +18,20 @@ export async function fetchGuestToken(nickname: string): Promise<GuestAuth> {
   return (await res.json()) as GuestAuth;
 }
 
+/** Trades a CrazyGames token for the game's own; a guest token moves that guest's progress over. */
+export async function fetchCrazyGamesToken(
+  crazyGamesToken: string,
+  guestToken: string | undefined,
+): Promise<GuestAuth> {
+  const res = await fetch(`${SERVER_HTTP_URL}/auth/crazygames`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: crazyGamesToken, guestToken }),
+  });
+  if (!res.ok) throw new Error(`CrazyGames sign-in failed (${res.status})`);
+  return (await res.json()) as GuestAuth;
+}
+
 export interface WalletInfo {
   readonly userId: string;
   readonly nickname: string;

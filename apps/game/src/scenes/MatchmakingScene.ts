@@ -10,7 +10,13 @@ import {
   joinRandomMatch,
   joinRoomById,
 } from "../services/net.js";
-import { inviteToRoom, isFacebookInstant, roomLink } from "../services/platform.js";
+import {
+  inviteToRoom,
+  isFacebookInstant,
+  reportLeftRoom,
+  reportRoom,
+  roomLink,
+} from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
 import { COLOR, TEXT } from "../ui/theme.js";
@@ -88,7 +94,9 @@ export class MatchmakingScene extends Phaser.Scene {
     );
 
     this.events.once("shutdown", () => {
-      if (!this.handedOff) void this.room?.leave(true).catch(() => undefined);
+      if (this.handedOff) return;
+      void this.room?.leave(true).catch(() => undefined);
+      reportLeftRoom();
     });
     void this.connect();
   }
@@ -132,6 +140,10 @@ export class MatchmakingScene extends Phaser.Scene {
   private onState(state: RoomStateMsg): void {
     if (!this.sys.isActive() || this.handedOff) return;
     if (state.code !== null) this.showCode(state.code);
+    if (this.room !== null) {
+      const seatsFree = state.roomPhase !== "PLAYING" && state.seats.length < state.playerCount;
+      reportRoom(this.room.roomId, state.code, seatsFree);
+    }
     this.stakes.setText(describeStakes(this.request.mode, state.pot, state.playerCount));
     this.showSeats(state.seats, state.playerCount);
     this.status.setText(`${state.seats.length} / ${state.playerCount} players`);

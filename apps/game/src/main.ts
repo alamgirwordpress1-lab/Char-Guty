@@ -12,7 +12,15 @@ import { LeaderboardScene } from "./scenes/LeaderboardScene.js";
 import { LoginScene } from "./scenes/LoginScene.js";
 import { MatchmakingScene } from "./scenes/MatchmakingScene.js";
 import { ProfileScene } from "./scenes/ProfileScene.js";
-import { initPlatform } from "./services/platform.js";
+import type { MatchmakingSceneData } from "./scenes/flow.js";
+import {
+  initPlatform,
+  onCrazyGamesLogin,
+  onRoomInvite,
+  reloadBetweenGames,
+} from "./services/platform.js";
+import { signInWithCrazyGames } from "./services/signIn.js";
+import { getSession, hasSession } from "./state/session.js";
 import { COLOR } from "./ui/theme.js";
 
 // Inside Facebook the SDK has to be initialised before anything else calls it.
@@ -50,6 +58,27 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+
+// CrazyGames: a player who logs in mid-session carries on as that account. When it isn't the
+// account they were already playing as, the page restarts between games to load it.
+onCrazyGamesLogin(() => {
+  const before = hasSession() ? getSession().userId : null;
+  void signInWithCrazyGames().then((signedIn) => {
+    if (signedIn && (before === null || getSession().userId !== before)) reloadBetweenGames();
+  });
+});
+
+// Accepting a CrazyGames invite while already in the game goes to that room - unless a game,
+// or the search for one, is under way.
+onRoomInvite((code) => {
+  if (!hasSession() || game.scene.isActive("Game") || game.scene.isActive("Matchmaking")) return;
+  game.scene.getScenes(true)[0]?.scene.start("Matchmaking", {
+    mode: "friends",
+    playerCount: 2,
+    pot: null,
+    code,
+  } satisfies MatchmakingSceneData);
+});
 
 // Store screenshots have to come out of the real game at its own 720x1280, and a WebGL
 // canvas reads back blank through toDataURL - only the renderer's own snapshot works.

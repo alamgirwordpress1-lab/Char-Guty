@@ -6,7 +6,7 @@ import { currentFirebaseSession, isFirebaseConfigured } from "../services/auth.j
 import { fetchWallet } from "../services/net.js";
 import { isCrazyGames, reportLoadingProgress, startPlatformGame } from "../services/platform.js";
 import { forgetSession, loadSession, saveSession } from "../services/sessionStore.js";
-import { completeSignIn, guestSignIn } from "../services/signIn.js";
+import { completeSignIn, guestSignIn, signInWithCrazyGames } from "../services/signIn.js";
 import { setSession } from "../state/session.js";
 import { COLOR, FONT } from "../ui/theme.js";
 import { glossyButton } from "../ui/widgets.js";
@@ -112,6 +112,11 @@ export class BootScene extends Phaser.Scene {
       return;
     }
     this.status.setText("Signing in...");
+    // A player logged in to CrazyGames plays as that account, signed in without asking.
+    if (isCrazyGames() && (await signInWithCrazyGames())) {
+      this.scene.start("Home");
+      return;
+    }
     const restored = await restoreSession();
     if (restored === "offline") {
       this.status.setText("Can't reach the game server").setColor(COLOR.lose);

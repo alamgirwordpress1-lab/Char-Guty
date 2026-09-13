@@ -13,7 +13,7 @@ time); the other two are free. Answers marked **decide** are the owner's to conf
 | Category | Games -> Board |
 | Contains ads | Yes (rewarded video for free coins) |
 | In-app purchases | No - none, ever |
-| Website | https://alamgirwordpress1-lab.github.io/Char-Guty/ |
+| Website | https://charguty.online/ |
 | Privacy policy | https://http--char-guty-server--gf6pxjtyq6lt.code.run/privacy |
 | Support email | the owner's own address (stores show it publicly) |
 

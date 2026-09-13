@@ -5,9 +5,12 @@ export interface Arena {
   readonly tint: number;
 }
 
+/** The cheapest table, and where a one-tap game starts. */
+export const STARTER_ARENA: Arena = { pot: 100, name: "Village Courtyard", tint: 0x2e9a2b };
+
 /** pot ∈ {100,200,300,400,500} - see CLAUDE.md. */
 export const ARENAS: readonly Arena[] = [
-  { pot: 100, name: "Village Courtyard", tint: 0x2e9a2b },
+  STARTER_ARENA,
   { pot: 200, name: "Village Fair", tint: 0x1d78da },
   { pot: 300, name: "River Bank", tint: 0x8b5cf6 },
   { pot: 400, name: "Town Square", tint: 0xec7c12 },

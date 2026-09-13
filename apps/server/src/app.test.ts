@@ -223,6 +223,7 @@ describe("admin routes", () => {
     expect(res.body).toContain("Char Guty admin");
     // Without this, #login's display: grid kept the sign-in card over the dashboard.
     expect(res.body).toContain("[hidden] { display: none !important; }");
+    expect(res.body).toContain('id="remember"');
   });
 
   it("list and find a player, ban them out of /me, and let them back in", async () => {

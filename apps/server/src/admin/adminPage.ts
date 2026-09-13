@@ -3,7 +3,8 @@
  * the dashboard and to paged, filterable lists of players, matches and coin transactions;
  * a player opens in a side drawer with their history and the ban controls. Where you are
  * lives in the URL hash, so a refresh or a shared link lands on the same filtered view.
- * The token sits in sessionStorage: a refresh keeps you signed in, closing the tab forgets it.
+ * The token sits in sessionStorage - a refresh keeps you signed in, closing the tab forgets it -
+ * or in localStorage once "Keep me signed in on this device" is ticked.
  *
  * The markup is one template literal, so the script inside avoids backticks, "${" and
  * backslashes - all three would be read by TypeScript rather than reach the browser.
@@ -157,6 +158,7 @@ export function adminPage(): string {
   .token-row .input { flex: 1; }
   .login-error { margin: 12px 0 0; padding: 9px 12px; border-radius: 9px; background: rgba(248,113,113,.12);
                  border: 1px solid rgba(248,113,113,.35); color: #fecaca; font-size: 13px; }
+  .remember { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted); font-size: 13px; cursor: pointer; }
   #signin { margin-top: 14px; }
 
   @media (max-width: 1700px) { .two { grid-template-columns: minmax(0, 1fr); } }
@@ -185,6 +187,7 @@ export function adminPage(): string {
       <button id="showToken" class="btn" type="button">Show</button></div>
     </div>
     <p id="loginError" class="login-error" role="alert" hidden></p>
+    <label class="remember"><input id="remember" type="checkbox" /> Keep me signed in on this device</label>
     <button id="signin" class="btn primary block">Sign in</button>
   </div>
 </div>
@@ -222,7 +225,7 @@ var REASONS = { signup_bonus: "Signup bonus", match_stake: "Match stake", match_
                 match_win: "Match win", rewarded_ad: "Rewarded ad" };
 var MODES = { friend: ["Friends", "violet"], random: ["Online", "blue"], computer: ["Vs computer", "grey"] };
 
-var token = sessionStorage.getItem("cg_admin_token") || "";
+var token = sessionStorage.getItem("cg_admin_token") || localStorage.getItem("cg_admin_token") || "";
 var refreshTimer = null;
 var reasonsCache = null;
 var restoreFocus = null;
@@ -277,6 +280,7 @@ function showShell(signedIn) {
 function signOut(message) {
   token = "";
   sessionStorage.removeItem("cg_admin_token");
+  localStorage.removeItem("cg_admin_token");
   closeDrawer();
   showShell(false);
   loginError(typeof message === "string" ? message : "");
@@ -316,7 +320,7 @@ $("#signin").onclick = async function () {
   if (problem) { loginError(problem); return; }
   loginError("");
   token = candidate;
-  sessionStorage.setItem("cg_admin_token", token);
+  ($("#remember").checked ? localStorage : sessionStorage).setItem("cg_admin_token", token);
   $("#token").value = "";
   showShell(true);
 };

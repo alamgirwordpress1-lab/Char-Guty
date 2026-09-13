@@ -1,7 +1,12 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
+import { STARTER_ARENA } from "../game/arenas.js";
 import { fetchWallet } from "../services/net.js";
-import { takeInvitedRoomCode } from "../services/platform.js";
+import {
+  isCrazyGamesBuild,
+  takeInstantMultiplayer,
+  takeInvitedRoomCode,
+} from "../services/platform.js";
 import { getSession, updateBalance } from "../state/session.js";
 import { openFreeCoins } from "../ui/freeCoins.js";
 import { openSettings } from "../ui/settingsDialog.js";
@@ -59,7 +64,7 @@ export class HomeScene extends Phaser.Scene {
   }
 
   create(): void {
-    // A Facebook invite launches the game straight into the inviter's room, the first time only.
+    // An invite (Facebook's, a CrazyGames link, a ?room= link) opens the inviter's room, once.
     const invitedRoom = takeInvitedRoomCode();
     if (invitedRoom !== null) {
       this.scene.start("Matchmaking", {
@@ -67,6 +72,15 @@ export class HomeScene extends Phaser.Scene {
         playerCount: 2,
         pot: null,
         code: invitedRoom,
+      } satisfies MatchmakingSceneData);
+      return;
+    }
+    // Launched from CrazyGames' own multiplayer button: straight into a new private room.
+    if (takeInstantMultiplayer()) {
+      this.scene.start("Matchmaking", {
+        mode: "friends",
+        playerCount: 2,
+        pot: STARTER_ARENA.pot,
       } satisfies MatchmakingSceneData);
       return;
     }
@@ -138,8 +152,22 @@ export class HomeScene extends Phaser.Scene {
   }
 
   private open(mode: PlayMode): void {
-    if (mode === "friends") this.scene.start("Friends");
-    else this.scene.start("Arena", { mode } satisfies ArenaSceneData);
+    if (mode === "friends") {
+      this.scene.start("Friends");
+      return;
+    }
+    // CrazyGames wants play one tap away, so there the first table starts straight away -
+    // unless its entry is more than the player has, and the tables show why.
+    const affordable = mode === "computer" || getSession().coins >= STARTER_ARENA.pot / 2;
+    if (isCrazyGamesBuild && affordable) {
+      this.scene.start("Matchmaking", {
+        mode,
+        playerCount: 2,
+        pot: STARTER_ARENA.pot,
+      } satisfies MatchmakingSceneData);
+      return;
+    }
+    this.scene.start("Arena", { mode } satisfies ArenaSceneData);
   }
 
   private buildBottomNav(): void {

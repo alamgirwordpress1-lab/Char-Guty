@@ -51,3 +51,51 @@ export async function upsertUser(db: Database, input: UpsertUserInput): Promise<
   }
   return existing;
 }
+
+export interface CrazyGamesSignIn {
+  readonly crazyGamesUserId: string;
+  readonly username: string;
+  /** The guest this device was playing as, whose progress moves to the account. */
+  readonly guestId?: string | undefined;
+}
+
+/**
+ * Signs a CrazyGames player in. A returning player gets their account back, renamed if
+ * they changed their CrazyGames username. The first time, the guest this device was
+ * playing as becomes the account, so its coins and history carry over; with no such
+ * guest a new account is made, signup bonus and all.
+ */
+export async function signInCrazyGamesUser(db: Database, input: CrazyGamesSignIn): Promise<User> {
+  const [existing] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.provider, "crazygames"), eq(users.providerId, input.crazyGamesUserId)));
+  if (existing !== undefined) {
+    if (existing.nickname === input.username) return existing;
+    const [renamed] = await db
+      .update(users)
+      .set({ nickname: input.username })
+      .where(eq(users.id, existing.id))
+      .returning();
+    return renamed ?? existing;
+  }
+  if (input.guestId !== undefined) {
+    const [linked] = await db
+      .update(users)
+      .set({
+        provider: "crazygames",
+        providerId: input.crazyGamesUserId,
+        nickname: input.username,
+        isGuest: false,
+      })
+      .where(and(eq(users.provider, "guest"), eq(users.providerId, input.guestId)))
+      .returning();
+    if (linked !== undefined) return linked;
+  }
+  return upsertUser(db, {
+    provider: "crazygames",
+    providerId: input.crazyGamesUserId,
+    nickname: input.username,
+    isGuest: false,
+  });
+}

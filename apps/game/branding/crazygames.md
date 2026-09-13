@@ -49,24 +49,29 @@ Tokka: press a guti, pull back and let go - the longer the pull, the harder the 
 A mouse works the same way.
 ```
 
-## What the build already does
+## What the build does for CrazyGames
 
 - Starts CrazyGames' SDK (v3) and reports loading, and gameplay start/stop around every game.
-- A first visit lands on the home screen as a guest: no sign-in screen, no outside logins.
+- Accounts: a player logged in to CrazyGames is signed in with that account automatically,
+  under their CrazyGames username (the server checks the SDK's token against CrazyGames'
+  public key). The first time, the guest they were playing as on that device becomes the
+  account, coins and history included. Everyone else plays as a guest. There is no other
+  sign-in and no sign-out button: accounts are CrazyGames' business.
+- One tap to play: PLAY ONLINE and PLAY VS COMPUTER start at the first table straight away;
+  the table list only shows when the player can't afford that table.
+- Rooms: the room a player is in is reported to CrazyGames, joinable while a private room
+  has seats free. Invites carry the room code, accepting one mid-session moves the player
+  to that room, and a launch from CrazyGames' own multiplayer button opens a new private
+  room.
+- After a game the same table plays the next one, so a group stays together.
 - A midgame video between games, and a rewarded video for +25 coins that pays only when the
   video finishes. The game goes quiet while a video plays and follows CrazyGames' mute
   setting.
-- After a game the same table plays the next one, so a group stays together.
-- SHARE in a private room makes a CrazyGames invite link that opens that room.
 - No other ads and no links out.
 
-## Still to do for Full Launch
+## Still to do
 
-- Server: set `CRAZYGAMES_AD_REWARDS=true` on char-guty-server, or rewarded videos play but
-  credit no coins.
-- Accounts: sign logged-in CrazyGames players in automatically (check `getUserToken()` on the
-  server against CrazyGames' public key), link a guest's progress when they log in, and show
-  their CrazyGames username.
-- Multiplayer: report the room with `updateRoom` / `leftRoom`, and start straight in a room
-  when `isInstantMultiplayer` is set.
-- At most one click from loading to playing.
+- The developer account is the owner's to create; then upload the zip and the covers and
+  fill in the form above.
+- At Full Launch, set `CRAZYGAMES_AD_REWARDS=true` on char-guty-server, or rewarded videos
+  play but credit no coins.

@@ -15,7 +15,12 @@ import { GutiView, restingAngle } from "../game/GutiView.js";
 import type { Side } from "../game/GutiView.js";
 import { ads } from "../services/ads.js";
 import { fetchWallet, reconnectRoom } from "../services/net.js";
-import { gameplayStarted, gameplayStopped } from "../services/platform.js";
+import {
+  gameplayStarted,
+  gameplayStopped,
+  reportLeftRoom,
+  reportRoomJoinable,
+} from "../services/platform.js";
 import type {
   EventsMsg,
   MatchEndedMsg,
@@ -750,6 +755,7 @@ export class GameScene extends Phaser.Scene {
   private showWaitingForPlayers(state: RoomStateMsg): void {
     if (this.roundOver === null) return;
     this.roundOver.nextRoundAt = null;
+    reportRoomJoinable(true);
     this.roundOver.status.setText(
       `Waiting for players (${state.seats.length}/${state.playerCount})`,
     );
@@ -760,6 +766,7 @@ export class GameScene extends Phaser.Scene {
     this.roundOver.container.destroy();
     this.roundOver = null;
     gameplayStarted();
+    reportRoomJoinable(false);
     // The new game's stake has just been charged.
     if (!this.offline) void this.refreshWallet();
   }
@@ -835,6 +842,7 @@ export class GameScene extends Phaser.Scene {
   private cleanup(): void {
     this.alive = false;
     gameplayStopped();
+    reportLeftRoom();
     this.aim = null;
     this.roundOver = null;
     this.room.removeAllListeners();
