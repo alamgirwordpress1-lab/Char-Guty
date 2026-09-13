@@ -49,6 +49,8 @@ const SEAT_POSITIONS: Record<number, readonly (readonly [number, number])[]> = {
   ],
 };
 const SEAT_AVATAR = 150;
+/** How long an online search waits alone before offering to invite a friend instead. */
+const NO_OPPONENT_NOTICE_MS = 30_000;
 
 /** Opens or joins the room, shows who's in it, and hands the room to Game once it starts. */
 export class MatchmakingScene extends Phaser.Scene {
@@ -61,6 +63,8 @@ export class MatchmakingScene extends Phaser.Scene {
   private stakes!: Phaser.GameObjects.Text;
   private status!: Phaser.GameObjects.Text;
   private cancelButton!: GameButton;
+  private lastState: RoomStateMsg | null = null;
+  private noticeShown = false;
 
   constructor() {
     super("Matchmaking");
@@ -73,6 +77,8 @@ export class MatchmakingScene extends Phaser.Scene {
     this.leaving = false;
     this.codeShown = false;
     this.seatViews = [];
+    this.lastState = null;
+    this.noticeShown = false;
 
     menuBackground(this);
     this.add.text(GAME_WIDTH / 2, 130, TITLES[request.mode], TEXT.title).setOrigin(0.5);
@@ -99,6 +105,11 @@ export class MatchmakingScene extends Phaser.Scene {
       reportLeftRoom();
     });
     void this.connect();
+    // With few players about, an online search can sit alone at its table; after a while
+    // say so, and offer a private room at the same stakes to share with a friend.
+    if (request.mode === "online") {
+      this.time.delayedCall(NO_OPPONENT_NOTICE_MS, () => this.offerFriendInvite());
+    }
   }
 
   private async connect(): Promise<void> {
@@ -138,7 +149,8 @@ export class MatchmakingScene extends Phaser.Scene {
   }
 
   private onState(state: RoomStateMsg): void {
-    if (!this.sys.isActive() || this.handedOff) return;
+    if (!this.sys.isActive() || this.handedOff || this.leaving) return;
+    this.lastState = state;
     if (state.code !== null) this.showCode(state.code);
     if (this.room !== null) {
       const seatsFree = state.roomPhase !== "PLAYING" && state.seats.length < state.playerCount;
@@ -252,6 +264,38 @@ export class MatchmakingScene extends Phaser.Scene {
         0.8,
       );
     });
+  }
+
+  /** Nobody else has joined this table yet: say so, and offer a private room instead. */
+  private offerFriendInvite(): void {
+    if (!this.sys.isActive() || this.handedOff || this.leaving || this.noticeShown) return;
+    const state = this.lastState;
+    if (this.room === null || (state !== null && state.seats.length >= state.playerCount)) return;
+    this.noticeShown = true;
+    this.add
+      .text(
+        GAME_WIDTH / 2,
+        950,
+        "No one else is looking for a game here yet.\nInvite a friend to play with you.",
+        { ...TEXT.body, align: "center" },
+      )
+      .setOrigin(0.5);
+    glossyButton(this, GAME_WIDTH / 2, 1060, "INVITE A FRIEND", () => this.inviteFriend(), {
+      width: 460,
+      height: 96,
+      color: "orange",
+      icon: "icon-users",
+    });
+  }
+
+  /** Leaves the public search for a private room at the same table, ready to share. */
+  private inviteFriend(): void {
+    this.leaving = true;
+    this.scene.start("Matchmaking", {
+      mode: "friends",
+      playerCount: this.request.playerCount,
+      pot: this.request.pot,
+    } satisfies MatchmakingSceneData);
   }
 
   private async cancel(): Promise<void> {
