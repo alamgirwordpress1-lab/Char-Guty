@@ -2,13 +2,14 @@ import { playerCountSchema, potSchema } from "@char-guty/shared";
 import type { JoinOptions } from "@char-guty/shared";
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import { GAME_WIDTH } from "../config.js";
+import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
 import {
   createComputerGame,
   createFriendRoom,
   findRoomByCode,
   joinRandomMatch,
   joinRoomById,
+  reconnectRoom,
 } from "../services/net.js";
 import {
   inviteToRoom,
@@ -19,8 +20,16 @@ import {
 } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
-import { COLOR, TEXT } from "../ui/theme.js";
-import { avatar, glossyButton, menuBackground, notify, panel, shortName } from "../ui/widgets.js";
+import { COLOR, FONT, TEXT } from "../ui/theme.js";
+import {
+  avatar,
+  dialog,
+  glossyButton,
+  menuBackground,
+  notify,
+  panel,
+  shortName,
+} from "../ui/widgets.js";
 import type { GameButton } from "../ui/widgets.js";
 import type { ArenaSceneData, GameStart, MatchmakingSceneData, PlayMode } from "./flow.js";
 
@@ -51,6 +60,9 @@ const SEAT_POSITIONS: Record<number, readonly (readonly [number, number])[]> = {
 const SEAT_AVATAR = 150;
 /** How long an online search waits alone before offering to invite a friend instead. */
 const NO_OPPONENT_NOTICE_MS = 30_000;
+/** A connection dropped while waiting gets this many tries, this far apart - as in GameScene. */
+const RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY_MS = 2000;
 
 /** Opens or joins the room, shows who's in it, and hands the room to Game once it starts. */
 export class MatchmakingScene extends Phaser.Scene {
@@ -120,14 +132,44 @@ export class MatchmakingScene extends Phaser.Scene {
         return;
       }
       this.room = room;
-      room.onMessage<RoomStateMsg>("state", (state) => this.onState(state));
-      room.onMessage<{ message: string }>("error", ({ message }) => this.status.setText(message));
-      room.onLeave(() => {
-        if (!this.handedOff && !this.leaving) this.fail("Lost connection to the room");
-      });
+      this.bindRoom(room);
     } catch (err) {
       this.fail(describeError(err));
     }
+  }
+
+  private bindRoom(room: Room): void {
+    room.onMessage<RoomStateMsg>("state", (state) => this.onState(state));
+    room.onMessage<{ message: string }>("error", ({ message }) => this.status.setText(message));
+    room.onLeave((code) => {
+      if (this.handedOff || this.leaving) return;
+      // A clean close means the room itself has gone. Anything else is a dropped connection -
+      // the host stepping out to a chat app to send the invite, say - and the seat is held.
+      if (code === 1000) this.fail("Lost connection to the room");
+      else void this.reconnect(room);
+    });
+  }
+
+  /** The server keeps a dropped player's seat for a minute (GutiRoom.onLeave): take it back. */
+  private async reconnect(dropped: Room): Promise<void> {
+    this.status.setText("Connection lost - reconnecting...").setColor(COLOR.muted);
+    for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+      if (!this.sys.isActive() || this.handedOff || this.leaving) return;
+      try {
+        const room = await reconnectRoom(dropped.reconnectionToken);
+        if (!this.sys.isActive() || this.leaving) {
+          void room.leave(true);
+          return;
+        }
+        this.room = room;
+        this.bindRoom(room);
+        this.status.setText("Reconnected").setColor(COLOR.white);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY_MS));
+      }
+    }
+    this.fail("Lost connection to the room");
   }
 
   private async openRoom(): Promise<Room> {
@@ -230,25 +272,85 @@ export class MatchmakingScene extends Phaser.Scene {
   }
 
   private async shareCode(code: string): Promise<void> {
-    try {
-      if (isFacebookInstant) {
+    if (isFacebookInstant) {
+      try {
         // Facebook's friend picker; the invite carries the code, so a friend lands in this room.
         await inviteToRoom(code, await this.inviteImage());
-        return;
+      } catch {
+        notify(this, `Room code: ${code}`);
       }
-      // A link, not just the code: whoever opens it lands in this room without typing it.
-      // Not every browser has a share sheet; the rest get the link copied instead.
-      const link = roomLink(code);
-      const text = `Join my Char Guty room! Code: ${code}`;
-      if (typeof navigator.share === "function") {
-        await navigator.share({ title: "Char Guty", text, url: link });
-        return;
-      }
-      await navigator.clipboard.writeText(link);
-      notify(this, "Invite link copied");
-    } catch {
-      notify(this, `Room code: ${code}`);
+      return;
     }
+    // A link, not just the code: whoever opens it lands in this room without typing it.
+    const link = roomLink(code);
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: "Char Guty",
+          text: `Join my Char Guty room! Code: ${code}`,
+          url: link,
+        });
+        return;
+      } catch (err) {
+        // Closing the share sheet is the player's choice; any other failure falls back to copying.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+    if (await copyText(link)) {
+      notify(this, "Invite link copied - paste it in your chat");
+      return;
+    }
+    this.showInviteLink(code, link);
+  }
+
+  /**
+   * In-app browsers like Messenger's often can neither share nor copy, so the link goes on
+   * screen instead, ready to select and copy by hand - leaving the game to send just the
+   * code would drop the room.
+   */
+  private showInviteLink(code: string, link: string): void {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.readOnly = true;
+    input.value = link;
+    Object.assign(input.style, {
+      width: "500px",
+      height: "64px",
+      boxSizing: "border-box",
+      padding: "0 16px",
+      fontFamily: FONT,
+      fontSize: "22px",
+      color: "#ffffff",
+      background: "#0a1d4d",
+      border: "3px solid #8fb8ff",
+      borderRadius: "14px",
+      outline: "none",
+    });
+    input.addEventListener("focus", () => input.select());
+    const field = this.add.dom(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, input);
+    const box = dialog(this, "Invite a Friend", 620, 600, () => field.destroy());
+    const hint = this.add
+      .text(0, -150, "Copy this link and send it to your friend.\nOr give them the room code:", {
+        ...TEXT.body,
+        align: "center",
+      })
+      .setOrigin(0.5);
+    const codeText = this.add
+      .text(0, -60, code, { ...TEXT.title, fontSize: "54px", color: COLOR.goldText })
+      .setOrigin(0.5);
+    const copy = glossyButton(
+      this,
+      0,
+      190,
+      "COPY LINK",
+      () =>
+        void copyText(link).then((copied) =>
+          notify(this, copied ? "Invite link copied" : "Press and hold the link to copy it"),
+        ),
+      { width: 360, height: 92, color: "green" },
+    );
+    box.add(hint, codeText, copy.container);
+    input.focus();
   }
 
   /** The waiting screen itself - seats and room code - as the picture on the invite. */
@@ -312,6 +414,32 @@ export class MatchmakingScene extends Phaser.Scene {
     if (!this.sys.isActive()) return;
     this.status.setText(message).setColor(COLOR.lose);
     this.cancelButton.setLabel("BACK");
+  }
+}
+
+/**
+ * Copies text to the clipboard. Where the clipboard API is missing or blocked - in-app
+ * browsers, mostly - it falls back to selecting a hidden text box and the old copy command.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    Object.assign(area.style, { position: "fixed", top: "0", left: "0", opacity: "0" });
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, text.length);
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    } finally {
+      area.remove();
+    }
   }
 }
 
