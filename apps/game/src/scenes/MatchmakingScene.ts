@@ -2,7 +2,7 @@ import { playerCountSchema, potSchema } from "@char-guty/shared";
 import type { JoinOptions } from "@char-guty/shared";
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
+import { GAME_WIDTH } from "../config.js";
 import {
   createComputerGame,
   createFriendRoom,
@@ -13,6 +13,7 @@ import {
 } from "../services/net.js";
 import {
   inviteToRoom,
+  isCrazyGames,
   isFacebookInstant,
   reportLeftRoom,
   reportRoom,
@@ -20,7 +21,7 @@ import {
 } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
-import { COLOR, FONT, TEXT } from "../ui/theme.js";
+import { COLOR, TEXT } from "../ui/theme.js";
 import {
   avatar,
   dialog,
@@ -292,65 +293,102 @@ export class MatchmakingScene extends Phaser.Scene {
         });
         return;
       } catch (err) {
-        // Closing the share sheet is the player's choice; any other failure falls back to copying.
+        // Closing the share sheet is the player's choice; any other failure offers the chat apps.
         if (err instanceof DOMException && err.name === "AbortError") return;
       }
     }
-    if (await copyText(link)) {
-      notify(this, "Invite link copied - paste it in your chat");
+    // On CrazyGames the game sits in a frame on their page, which can't reliably open other
+    // apps, so the link is copied there instead.
+    if (isCrazyGames()) {
+      await this.copyLink(code, link);
       return;
     }
-    this.showInviteLink(code, link);
+    this.showShareOptions(code, link);
   }
 
   /**
-   * In-app browsers like Messenger's often can neither share nor copy, so the link goes on
-   * screen instead, ready to select and copy by hand - leaving the game to send just the
-   * code would drop the room.
+   * Browsers with no share sheet - the ones inside Messenger and Facebook, mostly - get the
+   * chat apps offered directly, each opening its own "send to" screen with the invite in it.
    */
-  private showInviteLink(code: string, link: string): void {
-    const input = document.createElement("input");
-    input.type = "text";
-    input.readOnly = true;
-    input.value = link;
-    Object.assign(input.style, {
-      width: "500px",
-      height: "64px",
-      boxSizing: "border-box",
-      padding: "0 16px",
-      fontFamily: FONT,
-      fontSize: "22px",
-      color: "#ffffff",
-      background: "#0a1d4d",
-      border: "3px solid #8fb8ff",
-      borderRadius: "14px",
-      outline: "none",
-    });
-    input.addEventListener("focus", () => input.select());
-    const field = this.add.dom(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, input);
-    const box = dialog(this, "Invite a Friend", 620, 600, () => field.destroy());
+  private showShareOptions(code: string, link: string): void {
+    const message = encodeURIComponent(`Join my Char Guty room! Code: ${code} ${link}`);
+    // A phone opens the app itself through its link scheme, which leaves this page and its
+    // room where they are - an in-app browser would swap the page out for a web address.
+    // A computer gets the web version in a new tab.
+    const onPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const messenger = onPhone
+      ? `fb-messenger://share/?link=${encodeURIComponent(link)}`
+      : `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`;
+    const whatsapp = onPhone ? `whatsapp://send?text=${message}` : `https://wa.me/?text=${message}`;
+    const box = dialog(this, "Share Invite", 620, 760);
     const hint = this.add
-      .text(0, -150, "Copy this link and send it to your friend.\nOr give them the room code:", {
-        ...TEXT.body,
-        align: "center",
-      })
+      .text(0, -220, "Send your friend the room link:", TEXT.body)
       .setOrigin(0.5);
-    const codeText = this.add
-      .text(0, -60, code, { ...TEXT.title, fontSize: "54px", color: COLOR.goldText })
-      .setOrigin(0.5);
-    const copy = glossyButton(
+    const size = { width: 440, height: 96 } as const;
+    const toMessenger = glossyButton(
       this,
       0,
-      190,
-      "COPY LINK",
-      () =>
-        void copyText(link).then((copied) =>
-          notify(this, copied ? "Invite link copied" : "Press and hold the link to copy it"),
-        ),
-      { width: 360, height: 92, color: "green" },
+      -110,
+      "MESSENGER",
+      () => this.openChatApp("Messenger", messenger),
+      { ...size, color: "blue" },
     );
-    box.add(hint, codeText, copy.container);
-    input.focus();
+    const toWhatsApp = glossyButton(
+      this,
+      0,
+      10,
+      "WHATSAPP",
+      () => this.openChatApp("WhatsApp", whatsapp),
+      { ...size, color: "green" },
+    );
+    const copy = glossyButton(this, 0, 130, "COPY LINK", () => void this.copyLink(code, link), {
+      ...size,
+      color: "orange",
+    });
+    const codeText = this.add
+      .text(0, 250, `Room code: ${code}`, { ...TEXT.heading, color: COLOR.goldText })
+      .setOrigin(0.5);
+    box.add(hint, toMessenger.container, toWhatsApp.container, copy.container, codeText);
+  }
+
+  /**
+   * Hands the invite to a chat app: on a phone the app itself, through its link scheme. If
+   * nothing comes up - the page keeps focus, stays in front, and its timers never stall -
+   * the player is pointed to the other ways to share.
+   */
+  private openChatApp(name: string, url: string): void {
+    if (url.startsWith("https:")) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    const checkAfterMs = 2500;
+    const started = Date.now();
+    let left = false;
+    const onLeave = (): void => {
+      left = true;
+    };
+    window.addEventListener("blur", onLeave);
+    document.addEventListener("visibilitychange", onLeave);
+    window.location.href = url;
+    window.setTimeout(() => {
+      window.removeEventListener("blur", onLeave);
+      document.removeEventListener("visibilitychange", onLeave);
+      const opened = left || Date.now() - started > checkAfterMs * 2;
+      if (!opened && this.sys.isActive()) {
+        notify(this, `${name} didn't open - try another way to share`);
+      }
+    }, checkAfterMs);
+  }
+
+  private async copyLink(code: string, link: string): Promise<void> {
+    const copied = await copyText(link);
+    if (!this.sys.isActive()) return;
+    notify(
+      this,
+      copied
+        ? "Invite link copied - paste it in your chat"
+        : `Couldn't copy the link - send your friend the room code: ${code}`,
+    );
   }
 
   /** The waiting screen itself - seats and room code - as the picture on the invite. */
