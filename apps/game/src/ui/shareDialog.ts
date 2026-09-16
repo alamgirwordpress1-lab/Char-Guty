@@ -97,7 +97,7 @@ export function openShareDialog(scene: Phaser.Scene, code: string, link: string)
   }
 
   const rows = Math.ceil(targets.length / 2);
-  const height = 300 + rows * ROW_STEP;
+  const height = 250 + rows * ROW_STEP;
   const top = -height / 2;
   const box = dialog(scene, "Invite Friends", DIALOG_WIDTH, height);
   box.add(
