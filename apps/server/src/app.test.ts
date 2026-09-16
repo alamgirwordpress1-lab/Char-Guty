@@ -3,9 +3,11 @@ process.env.ADS_MOCK = "true";
 
 import { MAX_REWARDED_ADS_PER_DAY } from "@char-guty/shared";
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
+import { ledger, users, wallets } from "./db/schema.js";
 import { createTestDb } from "./db/testDb.js";
 import type { Database } from "./db/types.js";
 
@@ -59,6 +61,36 @@ describe("GET /me", () => {
   it("rejects a missing bearer token", async () => {
     const res = await app.inject({ method: "GET", url: "/me" });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("DELETE /me", () => {
+  it("deletes the account with its wallet and coin history, once", async () => {
+    const token = await guestToken();
+    const auth = { authorization: `Bearer ${token}` };
+    const me = await app.inject({ method: "GET", url: "/me", headers: auth });
+    const { userId } = me.json() as { userId: string };
+
+    const res = await app.inject({ method: "DELETE", url: "/me", headers: auth });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: true });
+    expect(await db.select().from(users).where(eq(users.id, userId))).toEqual([]);
+    expect(await db.select().from(wallets).where(eq(wallets.userId, userId))).toEqual([]);
+    expect(await db.select().from(ledger).where(eq(ledger.userId, userId))).toEqual([]);
+
+    const again = await app.inject({ method: "DELETE", url: "/me", headers: auth });
+    expect(again.json()).toEqual({ deleted: false });
+  });
+
+  it("rejects a missing bearer token", async () => {
+    const res = await app.inject({ method: "DELETE", url: "/me" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("sends the store listing's deletion link to the policy's deletion section", async () => {
+    const res = await app.inject({ method: "GET", url: "/delete-account" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/privacy#delete");
   });
 });
 

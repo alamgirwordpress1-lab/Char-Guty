@@ -12,6 +12,8 @@ export type RewardedAdResult = "rewarded" | "closed" | "failed";
 
 /** Android/Facebook Instant Games implementations plug in behind this same shape. */
 export interface AdsService {
+  /** False where no ad network is wired up: then Free Coins isn't offered at all. */
+  readonly offersRewarded: boolean;
   showRewarded(): Promise<RewardedAdResult>;
   /** The hook point apps/game calls between a match and the lobby. */
   showInterstitial(): Promise<void>;
@@ -19,6 +21,10 @@ export interface AdsService {
 
 /** Web/dev: calls the server's ADS_MOCK-gated endpoint instead of a real ad SDK. */
 class WebAdsService implements AdsService {
+  // Only the dev server's mock rewards exist here. A published web or Android build has no
+  // video to show, and a button that can never pay out reads as broken to store reviewers.
+  readonly offersRewarded = import.meta.env.DEV;
+
   async showRewarded(): Promise<RewardedAdResult> {
     return creditReward(claimMockAdReward);
   }
@@ -37,6 +43,7 @@ class InstantGamesAdsService implements AdsService {
   private readonly rewardedPlacement: string = import.meta.env.VITE_FB_REWARDED_PLACEMENT_ID ?? "";
   private readonly interstitialPlacement: string =
     import.meta.env.VITE_FB_INTERSTITIAL_PLACEMENT_ID ?? "";
+  readonly offersRewarded = this.rewardedPlacement !== "";
 
   async showRewarded(): Promise<RewardedAdResult> {
     if (this.rewardedPlacement === "") return "failed";
@@ -60,6 +67,8 @@ class InstantGamesAdsService implements AdsService {
  * played to the end, as CrazyGames requires.
  */
 class CrazyGamesAdsService implements AdsService {
+  readonly offersRewarded = true;
+
   async showRewarded(): Promise<RewardedAdResult> {
     if (!(await showCrazyGamesAd("rewarded"))) return "failed";
     return creditReward((token) => claimCrazyGamesAdReward(token, crypto.randomUUID()));

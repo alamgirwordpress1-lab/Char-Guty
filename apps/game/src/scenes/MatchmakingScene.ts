@@ -2,7 +2,7 @@ import { playerCountSchema, potSchema } from "@char-guty/shared";
 import type { JoinOptions } from "@char-guty/shared";
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import { GAME_WIDTH } from "../config.js";
+import { GAME_HEIGHT, GAME_WIDTH, LANDSCAPE } from "../config.js";
 import {
   createComputerGame,
   createFriendRoom,
@@ -21,16 +21,9 @@ import {
 } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
+import { copyInvite, openShareDialog } from "../ui/shareDialog.js";
 import { COLOR, TEXT } from "../ui/theme.js";
-import {
-  avatar,
-  dialog,
-  glossyButton,
-  menuBackground,
-  notify,
-  panel,
-  shortName,
-} from "../ui/widgets.js";
+import { avatar, glossyButton, menuBackground, notify, panel, shortName } from "../ui/widgets.js";
 import type { GameButton } from "../ui/widgets.js";
 import type { ArenaSceneData, GameStart, MatchmakingSceneData, PlayMode } from "./flow.js";
 
@@ -40,27 +33,68 @@ const TITLES: Record<PlayMode, string> = {
   friends: "Waiting for Friends",
 };
 
+type Point = readonly [x: number, y: number];
+
+/** Portrait runs top to bottom; landscape sets the seats out in one row across the screen. */
+const LAYOUT = LANDSCAPE
+  ? {
+      title: 70,
+      stakes: 130,
+      seatsY: 300,
+      status: 470,
+      note: 515,
+      code: [640, 600] as Point,
+      cancel: [1110, 650] as Point,
+      cancelWidth: 300,
+    }
+  : {
+      title: 130,
+      stakes: 196,
+      seatsY: 540,
+      status: 860,
+      note: 910,
+      code: [360, 990] as Point,
+      cancel: [360, 1170] as Point,
+      cancelWidth: 340,
+    };
+
 /** Where each seat's avatar sits, by player count. */
-const SEAT_POSITIONS: Record<number, readonly (readonly [number, number])[]> = {
-  2: [
-    [190, 540],
-    [530, 540],
-  ],
-  3: [
-    [190, 440],
-    [530, 440],
-    [360, 680],
-  ],
-  4: [
-    [190, 430],
-    [530, 430],
-    [190, 670],
-    [530, 670],
-  ],
-};
+const SEAT_POSITIONS: Record<number, readonly Point[]> = LANDSCAPE
+  ? {
+      2: [
+        [440, 300],
+        [840, 300],
+      ],
+      3: [
+        [340, 300],
+        [640, 300],
+        [940, 300],
+      ],
+      4: [
+        [250, 300],
+        [510, 300],
+        [770, 300],
+        [1030, 300],
+      ],
+    }
+  : {
+      2: [
+        [190, 540],
+        [530, 540],
+      ],
+      3: [
+        [190, 440],
+        [530, 440],
+        [360, 680],
+      ],
+      4: [
+        [190, 430],
+        [530, 430],
+        [190, 670],
+        [530, 670],
+      ],
+    };
 const SEAT_AVATAR = 150;
-/** How long an online search waits alone before offering to invite a friend instead. */
-const NO_OPPONENT_NOTICE_MS = 30_000;
 /** A connection dropped while waiting gets this many tries, this far apart - as in GameScene. */
 const RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY_MS = 2000;
@@ -76,8 +110,6 @@ export class MatchmakingScene extends Phaser.Scene {
   private stakes!: Phaser.GameObjects.Text;
   private status!: Phaser.GameObjects.Text;
   private cancelButton!: GameButton;
-  private lastState: RoomStateMsg | null = null;
-  private noticeShown = false;
 
   constructor() {
     super("Matchmaking");
@@ -90,27 +122,38 @@ export class MatchmakingScene extends Phaser.Scene {
     this.leaving = false;
     this.codeShown = false;
     this.seatViews = [];
-    this.lastState = null;
-    this.noticeShown = false;
 
     menuBackground(this);
-    this.add.text(GAME_WIDTH / 2, 130, TITLES[request.mode], TEXT.title).setOrigin(0.5);
+    this.add.text(GAME_WIDTH / 2, LAYOUT.title, TITLES[request.mode], TEXT.title).setOrigin(0.5);
     this.stakes = this.add
-      .text(GAME_WIDTH / 2, 196, describeStakes(request.mode, request.pot, request.playerCount), {
-        ...TEXT.body,
-        color: COLOR.goldText,
-      })
+      .text(
+        GAME_WIDTH / 2,
+        LAYOUT.stakes,
+        describeStakes(request.mode, request.pot, request.playerCount),
+        { ...TEXT.body, color: COLOR.goldText },
+      )
       .setOrigin(0.5);
     this.showSeats([], request.playerCount);
-    this.status = this.add.text(GAME_WIDTH / 2, 860, "Connecting...", TEXT.body).setOrigin(0.5);
-    this.cancelButton = glossyButton(
-      this,
-      GAME_WIDTH / 2,
-      1170,
-      "CANCEL",
-      () => void this.cancel(),
-      { width: 340, height: 96, color: "gray" },
-    );
+    this.status = this.add
+      .text(GAME_WIDTH / 2, LAYOUT.status, "Connecting...", TEXT.body)
+      .setOrigin(0.5);
+    // Said up front, so nobody is surprised to find a computer across the table.
+    if (request.mode === "online") {
+      this.add
+        .text(
+          GAME_WIDTH / 2,
+          LAYOUT.note,
+          "If nobody comes soon, computer players take the empty seats",
+          TEXT.small,
+        )
+        .setOrigin(0.5);
+    }
+    const [cancelX, cancelY] = LAYOUT.cancel;
+    this.cancelButton = glossyButton(this, cancelX, cancelY, "CANCEL", () => void this.cancel(), {
+      width: LAYOUT.cancelWidth,
+      height: 96,
+      color: "gray",
+    });
 
     this.events.once("shutdown", () => {
       if (this.handedOff) return;
@@ -118,11 +161,6 @@ export class MatchmakingScene extends Phaser.Scene {
       reportLeftRoom();
     });
     void this.connect();
-    // With few players about, an online search can sit alone at its table; after a while
-    // say so, and offer a private room at the same stakes to share with a friend.
-    if (request.mode === "online") {
-      this.time.delayedCall(NO_OPPONENT_NOTICE_MS, () => this.offerFriendInvite());
-    }
   }
 
   private async connect(): Promise<void> {
@@ -193,7 +231,6 @@ export class MatchmakingScene extends Phaser.Scene {
 
   private onState(state: RoomStateMsg): void {
     if (!this.sys.isActive() || this.handedOff || this.leaving) return;
-    this.lastState = state;
     if (state.code !== null) this.showCode(state.code);
     if (this.room !== null) {
       const seatsFree = state.roomPhase !== "PLAYING" && state.seats.length < state.playerCount;
@@ -220,7 +257,7 @@ export class MatchmakingScene extends Phaser.Scene {
     if (count === 2) {
       const burst = this.add.image(0, 0, "burst").setDisplaySize(170, 170);
       const vs = this.add.text(0, 0, "VS", { ...TEXT.hero, fontSize: "60px" }).setOrigin(0.5);
-      this.seatViews.push(this.add.container(GAME_WIDTH / 2, 540, [burst, vs]));
+      this.seatViews.push(this.add.container(GAME_WIDTH / 2, LAYOUT.seatsY, [burst, vs]));
     }
 
     (SEAT_POSITIONS[count] ?? []).forEach(([x, y], i) => {
@@ -252,18 +289,14 @@ export class MatchmakingScene extends Phaser.Scene {
   private showCode(code: string): void {
     if (this.codeShown) return;
     this.codeShown = true;
-    const y = 990;
-    panel(this, GAME_WIDTH / 2, y, 580, 170, "card");
-    this.add.text(GAME_WIDTH / 2 - 100, y - 46, "ROOM CODE", TEXT.small).setOrigin(0.5);
+    const [x, y] = LAYOUT.code;
+    panel(this, x, y, 580, 170, "card");
+    this.add.text(x - 100, y - 46, "ROOM CODE", TEXT.small).setOrigin(0.5);
     this.add
-      .text(GAME_WIDTH / 2 - 100, y + 18, code, {
-        ...TEXT.title,
-        fontSize: "54px",
-        color: COLOR.goldText,
-      })
+      .text(x - 100, y + 18, code, { ...TEXT.title, fontSize: "54px", color: COLOR.goldText })
       .setOrigin(0.5);
     const label = isFacebookInstant ? "INVITE" : "SHARE";
-    glossyButton(this, GAME_WIDTH / 2 + 170, y, label, () => void this.shareCode(code), {
+    glossyButton(this, x + 170, y, label, () => void this.shareCode(code), {
       width: 180,
       height: 86,
       color: "orange",
@@ -284,121 +317,26 @@ export class MatchmakingScene extends Phaser.Scene {
     }
     // A link, not just the code: whoever opens it lands in this room without typing it.
     const link = roomLink(code);
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({
-          title: "Char Guty",
-          text: `Join my Char Guty room! Code: ${code}`,
-          url: link,
-        });
-        return;
-      } catch (err) {
-        // Closing the share sheet is the player's choice; any other failure offers the chat apps.
-        if (err instanceof DOMException && err.name === "AbortError") return;
-      }
-    }
-    // On CrazyGames the game sits in a frame on their page, which can't reliably open other
-    // apps, so the link is copied there instead.
+    // CrazyGames wants no links out of the game, and offers its own invite button besides:
+    // there the link is just copied.
     if (isCrazyGames()) {
-      await this.copyLink(code, link);
+      await copyInvite(this, code, link);
       return;
     }
-    this.showShareOptions(code, link);
-  }
-
-  /**
-   * Browsers with no share sheet - the ones inside Messenger and Facebook, mostly - get the
-   * chat apps offered directly, each opening its own "send to" screen with the invite in it.
-   */
-  private showShareOptions(code: string, link: string): void {
-    const message = encodeURIComponent(`Join my Char Guty room! Code: ${code} ${link}`);
-    // A phone opens the app itself through its link scheme, which leaves this page and its
-    // room where they are - an in-app browser would swap the page out for a web address.
-    // A computer gets the web version in a new tab.
-    const onPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const messenger = onPhone
-      ? `fb-messenger://share/?link=${encodeURIComponent(link)}`
-      : `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`;
-    const whatsapp = onPhone ? `whatsapp://send?text=${message}` : `https://wa.me/?text=${message}`;
-    const box = dialog(this, "Share Invite", 620, 760);
-    const hint = this.add
-      .text(0, -220, "Send your friend the room link:", TEXT.body)
-      .setOrigin(0.5);
-    const size = { width: 440, height: 96 } as const;
-    const toMessenger = glossyButton(
-      this,
-      0,
-      -110,
-      "MESSENGER",
-      () => this.openChatApp("Messenger", messenger),
-      { ...size, color: "blue" },
-    );
-    const toWhatsApp = glossyButton(
-      this,
-      0,
-      10,
-      "WHATSAPP",
-      () => this.openChatApp("WhatsApp", whatsapp),
-      { ...size, color: "green" },
-    );
-    const copy = glossyButton(this, 0, 130, "COPY LINK", () => void this.copyLink(code, link), {
-      ...size,
-      color: "orange",
-    });
-    const codeText = this.add
-      .text(0, 250, `Room code: ${code}`, { ...TEXT.heading, color: COLOR.goldText })
-      .setOrigin(0.5);
-    box.add(hint, toMessenger.container, toWhatsApp.container, copy.container, codeText);
-  }
-
-  /**
-   * Hands the invite to a chat app: on a phone the app itself, through its link scheme. If
-   * nothing comes up - the page keeps focus, stays in front, and its timers never stall -
-   * the player is pointed to the other ways to share.
-   */
-  private openChatApp(name: string, url: string): void {
-    if (url.startsWith("https:")) {
-      window.open(url, "_blank", "noopener");
-      return;
-    }
-    const checkAfterMs = 2500;
-    const started = Date.now();
-    let left = false;
-    const onLeave = (): void => {
-      left = true;
-    };
-    window.addEventListener("blur", onLeave);
-    document.addEventListener("visibilitychange", onLeave);
-    window.location.href = url;
-    window.setTimeout(() => {
-      window.removeEventListener("blur", onLeave);
-      document.removeEventListener("visibilitychange", onLeave);
-      const opened = left || Date.now() - started > checkAfterMs * 2;
-      if (!opened && this.sys.isActive()) {
-        notify(this, `${name} didn't open - try another way to share`);
-      }
-    }, checkAfterMs);
-  }
-
-  private async copyLink(code: string, link: string): Promise<void> {
-    const copied = await copyText(link);
-    if (!this.sys.isActive()) return;
-    notify(
-      this,
-      copied
-        ? "Invite link copied - paste it in your chat"
-        : `Couldn't copy the link - send your friend the room code: ${code}`,
-    );
+    openShareDialog(this, code, link);
   }
 
   /** The waiting screen itself - seats and room code - as the picture on the invite. */
   private inviteImage(): Promise<string> {
+    const [x, y, width, height] = LANDSCAPE
+      ? [0, 0, GAME_WIDTH, GAME_HEIGHT]
+      : [0, 100, GAME_WIDTH, 1000];
     return new Promise((resolve) => {
       this.game.renderer.snapshotArea(
-        0,
-        100,
-        GAME_WIDTH,
-        1000,
+        x,
+        y,
+        width,
+        height,
         (snapshot) => resolve(snapshot instanceof HTMLImageElement ? snapshot.src : ""),
         "image/jpeg",
         0.8,
@@ -406,36 +344,9 @@ export class MatchmakingScene extends Phaser.Scene {
     });
   }
 
-  /** Nobody else has joined this table yet: say so, and offer a private room instead. */
-  private offerFriendInvite(): void {
-    if (!this.sys.isActive() || this.handedOff || this.leaving || this.noticeShown) return;
-    const state = this.lastState;
-    if (this.room === null || (state !== null && state.seats.length >= state.playerCount)) return;
-    this.noticeShown = true;
-    this.add
-      .text(
-        GAME_WIDTH / 2,
-        950,
-        "No one else is looking for a game here yet.\nInvite a friend to play with you.",
-        { ...TEXT.body, align: "center" },
-      )
-      .setOrigin(0.5);
-    glossyButton(this, GAME_WIDTH / 2, 1060, "INVITE A FRIEND", () => this.inviteFriend(), {
-      width: 460,
-      height: 96,
-      color: "orange",
-      icon: "icon-users",
-    });
-  }
-
-  /** Leaves the public search for a private room at the same table, ready to share. */
-  private inviteFriend(): void {
-    this.leaving = true;
-    this.scene.start("Matchmaking", {
-      mode: "friends",
-      playerCount: this.request.playerCount,
-      pot: this.request.pot,
-    } satisfies MatchmakingSceneData);
+  /** Android's back button: the same as CANCEL. */
+  handleBack(): void {
+    void this.cancel();
   }
 
   private async cancel(): Promise<void> {
@@ -452,32 +363,6 @@ export class MatchmakingScene extends Phaser.Scene {
     if (!this.sys.isActive()) return;
     this.status.setText(message).setColor(COLOR.lose);
     this.cancelButton.setLabel("BACK");
-  }
-}
-
-/**
- * Copies text to the clipboard. Where the clipboard API is missing or blocked - in-app
- * browsers, mostly - it falls back to selecting a hidden text box and the old copy command.
- */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    Object.assign(area.style, { position: "fixed", top: "0", left: "0", opacity: "0" });
-    document.body.appendChild(area);
-    area.select();
-    area.setSelectionRange(0, text.length);
-    try {
-      return document.execCommand("copy");
-    } catch {
-      return false;
-    } finally {
-      area.remove();
-    }
   }
 }
 

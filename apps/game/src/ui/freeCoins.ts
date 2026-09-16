@@ -4,6 +4,9 @@ import { getSession } from "../state/session.js";
 import { TEXT } from "./theme.js";
 import { dialog, glossyButton, notify } from "./widgets.js";
 
+/** Whether this build has a video to watch for coins; where it has none, the offer is hidden. */
+export const freeCoinsOffered = ads.offersRewarded;
+
 /** Offers a rewarded video for +25 coins; the server caps how many count per day. */
 export function openFreeCoins(scene: Phaser.Scene, onCoins: (coins: number) => void): void {
   const box = dialog(scene, "Free Coins", 580, 540);

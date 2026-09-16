@@ -5,6 +5,8 @@
  *    reset to 0 and the first throw passed to the next seat.
  * 2. A bot opens a vs-computer game: it starts at once against a computer player, takes
  *    no stake, and the computer plays a turn of its own.
+ * 3. A bot alone at an online table: computer players fill the empty seats after a short
+ *    wait, and only the bot stakes its entry.
  *
  * Usage: SERVER_URL=ws://localhost:2567 tsx scripts/bot-test.ts
  * (the server must already be running - see src/index.ts)
@@ -36,6 +38,8 @@ const PLAYER_COUNT = 2;
 const MATCH_TIMEOUT_MS = 60_000;
 const NEXT_GAME_GRACE_MS = 10_000;
 const COMPUTER_GAME_START_MS = 5_000;
+/** GutiRoom's COMPUTER_FILL_MS, plus room for the game to start. */
+const COMPUTER_FILL_GRACE_MS = 15_000;
 const DEAD_ON = { next: () => 0.5 };
 
 async function fetchGuestToken(nickname: string): Promise<GuestAuth> {
@@ -174,8 +178,46 @@ async function botPlaysTheComputer(): Promise<void> {
   await room.leave();
 }
 
+async function botWaitsAloneOnline(): Promise<void> {
+  const auth = await fetchGuestToken("bot-alone");
+  const coinsBefore = await fetchCoins(auth.token);
+  // Four seats at a table nobody else here searches for, so the bot sits there alone.
+  const playerCount = 4;
+  const room = await new Client(WS_ENDPOINT).joinOrCreate("guti", {
+    mode: "random",
+    playerCount,
+    pot: POT,
+    token: auth.token,
+    nickname: "bot-alone",
+  });
+  const joinedAt = Date.now();
+  const started = waitForState(room, (s) => s.roomPhase === "PLAYING");
+  actAsBot(room, "bot-alone", auth.userId);
+
+  const state = await Promise.race([
+    started,
+    rejectAfter(COMPUTER_FILL_GRACE_MS, "computer players did not fill the online table"),
+  ]);
+  const computers = state.seats.filter((seat) => seat.isComputer).length;
+  if (computers !== playerCount - 1) {
+    throw new Error(`expected ${playerCount - 1} computer players, got ${computers}`);
+  }
+  const coinsAfter = await fetchCoins(auth.token);
+  if (coinsAfter !== coinsBefore - POT / playerCount) {
+    throw new Error(
+      `expected a stake of ${POT / playerCount}: coins ${coinsBefore} -> ${coinsAfter}`,
+    );
+  }
+  const waited = Math.round((Date.now() - joinedAt) / 1000);
+  console.log(
+    `Alone online, computer players filled the table after ${waited}s; only the bot staked`,
+  );
+  await room.leave();
+}
+
 twoBotsPlayAGame()
   .then(botPlaysTheComputer)
+  .then(botWaitsAloneOnline)
   .then(() => process.exit(0))
   .catch((err: unknown) => {
     console.error(err);

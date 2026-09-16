@@ -122,6 +122,23 @@ describe("throw", () => {
     });
   });
 
+  it("settles computer players out: they stake nothing, and a computer's win pays nobody", () => {
+    const computers = new Set(["cpu"]);
+    const allRound = () => scriptedRng([ROUND, ROUND, ROUND, ROUND]);
+    const humanWin = createMatch({ players: ["a", "cpu"], pot: 100, rng: allRound(), config });
+    expect(settle(humanWin.throw().state, computers)).toEqual({
+      stakes: [{ player: "a", coins: -50 }],
+      payout: { player: "a", coins: 100 },
+      deltas: { a: 50 },
+    });
+    const computerWin = createMatch({ players: ["cpu", "a"], pot: 100, rng: allRound(), config });
+    expect(settle(computerWin.throw().state, computers)).toEqual({
+      stakes: [{ player: "a", coins: -50 }],
+      payout: null,
+      deltas: { a: -50 },
+    });
+  });
+
   it("4F scores 4 and the same player throws again", () => {
     const match = createMatch({
       players: ["a", "b"],

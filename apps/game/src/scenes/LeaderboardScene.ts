@@ -1,9 +1,9 @@
 import Phaser from "phaser";
-import { GAME_WIDTH } from "../config.js";
+import { GAME_WIDTH, LANDSCAPE } from "../config.js";
 import { fetchLeaderboard } from "../services/net.js";
 import type { LeaderboardEntry, LeaderboardPeriod } from "../services/net.js";
 import { getSession } from "../state/session.js";
-import { openFreeCoins } from "../ui/freeCoins.js";
+import { freeCoinsOffered, openFreeCoins } from "../ui/freeCoins.js";
 import { COLOR, TEXT } from "../ui/theme.js";
 import {
   avatar,
@@ -14,11 +14,28 @@ import {
   shortName,
 } from "../ui/widgets.js";
 
-const LIST_Y = 740;
-const FIRST_ROW_Y = 350;
-const ROW_HEIGHT = 86;
 const SHOWN = 10;
 const MEDALS = [0xffd166, 0xd9e2ec, 0xe39b5a];
+/** Portrait: one column of ten. Landscape: two columns of five, side by side. */
+const LIST = LANDSCAPE
+  ? {
+      tabsY: 165,
+      panel: { y: 450, width: 1220, height: 500 },
+      rowWidth: 540,
+      columns: [340, 940],
+      firstRowY: 250,
+      rowStep: 88,
+      perColumn: 5,
+    }
+  : {
+      tabsY: 214,
+      panel: { y: 740, width: 660, height: 900 },
+      rowWidth: 620,
+      columns: [GAME_WIDTH / 2],
+      firstRowY: 350,
+      rowStep: 86,
+      perColumn: SHOWN,
+    };
 
 export class LeaderboardScene extends Phaser.Scene {
   private period: LeaderboardPeriod = "all";
@@ -35,7 +52,9 @@ export class LeaderboardScene extends Phaser.Scene {
       this,
       "Leaderboard",
       () => this.scene.start("Home"),
-      () => openFreeCoins(this, (balance) => coins.setCoins(balance)),
+      freeCoinsOffered
+        ? () => openFreeCoins(this, (balance) => coins.setCoins(balance))
+        : undefined,
     );
 
     const tabs: readonly (readonly [LeaderboardPeriod, string])[] = [
@@ -46,15 +65,17 @@ export class LeaderboardScene extends Phaser.Scene {
       glossyButton(
         this,
         GAME_WIDTH / 2 + (i === 0 ? -150 : 150),
-        214,
+        LIST.tabsY,
         label,
         () => this.scene.restart({ period }),
         { width: 280, height: 84, color: period === this.period ? "orange" : "gray", fontSize: 28 },
       );
     });
 
-    panel(this, GAME_WIDTH / 2, LIST_Y, 660, 900, "glass");
-    this.status = this.add.text(GAME_WIDTH / 2, LIST_Y, "Loading...", TEXT.body).setOrigin(0.5);
+    panel(this, GAME_WIDTH / 2, LIST.panel.y, LIST.panel.width, LIST.panel.height, "glass");
+    this.status = this.add
+      .text(GAME_WIDTH / 2, LIST.panel.y, "Loading...", TEXT.body)
+      .setOrigin(0.5);
     void this.loadEntries();
   }
 
@@ -74,34 +95,38 @@ export class LeaderboardScene extends Phaser.Scene {
     }
     this.status.setText("");
     const me = getSession().userId;
+    const half = LIST.rowWidth / 2;
     entries.slice(0, SHOWN).forEach((entry, i) => {
       const mine = entry.userId === me;
       const color = mine ? COLOR.goldText : COLOR.white;
       const parts: Phaser.GameObjects.GameObject[] = [];
-      if (mine) parts.push(panel(this, 0, 0, 620, 78, "card"));
+      if (mine) parts.push(panel(this, 0, 0, LIST.rowWidth, 78, "card"));
       const medal = MEDALS[i];
       if (medal !== undefined) {
         const disc = this.add.graphics();
-        disc.fillStyle(medal, 1).fillCircle(-262, 0, 24);
+        disc.fillStyle(medal, 1).fillCircle(-half + 48, 0, 24);
         parts.push(disc);
       }
       parts.push(
         this.add
-          .text(-262, 0, String(i + 1), {
+          .text(-half + 48, 0, String(i + 1), {
             ...TEXT.heading,
             color: medal === undefined ? COLOR.white : "#3b2a05",
           })
           .setOrigin(0.5),
-        avatar(this, -190, 0, entry.nickname, entry.userId, 56),
+        avatar(this, -half + 120, 0, entry.nickname, entry.userId, 56),
         this.add
-          .text(-146, 0, shortName(entry.nickname, 14), { ...TEXT.body, color })
+          .text(-half + 164, 0, shortName(entry.nickname, 14), { ...TEXT.body, color })
           .setOrigin(0, 0.5),
-        this.add.image(212, 0, "icon-trophy").setDisplaySize(36, 36),
+        this.add.image(half - 98, 0, "icon-trophy").setDisplaySize(36, 36),
         this.add
-          .text(290, 0, String(entry.winPoints), { ...TEXT.heading, color })
+          .text(half - 20, 0, String(entry.winPoints), { ...TEXT.heading, color })
           .setOrigin(1, 0.5),
       );
-      this.add.container(GAME_WIDTH / 2, FIRST_ROW_Y + i * ROW_HEIGHT, parts);
+      const column = Math.floor(i / LIST.perColumn);
+      const x = LIST.columns[column] ?? GAME_WIDTH / 2;
+      const y = LIST.firstRowY + (i % LIST.perColumn) * LIST.rowStep;
+      this.add.container(x, y, parts);
     });
   }
 }

@@ -25,7 +25,7 @@ import {
 } from "./db/adminService.js";
 import { getLeaderboard } from "./db/leaderboardRepository.js";
 import type { Database } from "./db/types.js";
-import { signInCrazyGamesUser, upsertUser } from "./db/userService.js";
+import { deleteUser, signInCrazyGamesUser, upsertUser } from "./db/userService.js";
 import { getBalance } from "./db/walletService.js";
 
 function bearerToken(request: FastifyRequest): string | undefined {
@@ -133,6 +133,27 @@ export function buildApp({ db }: BuildAppOptions): FastifyInstance {
       return { error: "invalid token" };
     }
   });
+
+  // Google Play requires that a player who can make an account can delete it from the game
+  // too, and Meta asks the same: this is what Profile's "Delete account" calls.
+  app.delete("/me", async (request, reply) => {
+    const token = bearerToken(request);
+    if (token === undefined) {
+      reply.code(401);
+      return { error: "missing bearer token" };
+    }
+    let verified: Awaited<ReturnType<typeof verifyAuthToken>>;
+    try {
+      verified = await verifyAuthToken(token);
+    } catch {
+      reply.code(401);
+      return { error: "invalid token" };
+    }
+    return { deleted: await deleteUser(db, verified.provider, verified.providerId) };
+  });
+
+  // The account-deletion web link a store listing asks for: the policy's deletion section.
+  app.get("/delete-account", async (_request, reply) => reply.redirect("/privacy#delete"));
 
   app.get("/rooms/by-code/:code", async (request, reply) => {
     const token = bearerToken(request);
@@ -397,7 +418,7 @@ function privacyPage(): string {
 </style></head>
 <body><main>
 <h1>Char Guty - Privacy Policy</h1>
-<p class="updated">Last updated: 12 September 2026</p>
+<p class="updated">Last updated: 17 September 2026</p>
 
 <p>Char Guty is a free game. It has no purchases and pays out no money. The coins in the
 game have no cash value.</p>
@@ -420,9 +441,11 @@ game have no cash value.</p>
 <p>Where ads are shown, they are served by Meta Audience Network, which handles that ad
 data under Meta's own terms. The game does not pass your game data to advertisers.</p>
 
-<h2>Deleting your data</h2>
-<p>Ask us to delete your account and we remove your player record, nickname, coins, win
-points and match history. Reach us ${reach} and say which nickname to delete.</p>
+<h2 id="delete">Deleting your account</h2>
+<p>In the game, open Profile and tap <b>Delete account</b>. That removes your player record,
+nickname, coins, win points and ad rewards at once; matches you played keep only an
+anonymous player id. You can also ask us to do it: reach us ${reach} and say which
+nickname to delete.</p>
 
 <h2>Children</h2>
 <p>The game is not directed at children under 13.</p>

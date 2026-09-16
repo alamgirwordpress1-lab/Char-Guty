@@ -11,10 +11,11 @@ time); the other two are free. Answers marked **decide** are the owner's to conf
 | App name | Char Guty |
 | Package / App ID | `com.charguty.game` |
 | Category | Games -> Board |
-| Contains ads | Yes (rewarded video for free coins) |
+| Contains ads | **No, for now** - the Android app has no ad network yet, so Free Coins is hidden there. Switch to Yes once one is added |
 | In-app purchases | No - none, ever |
 | Website | https://charguty.online/ |
 | Privacy policy | https://http--char-guty-server--gf6pxjtyq6lt.code.run/privacy |
+| Account deletion URL | https://http--char-guty-server--gf6pxjtyq6lt.code.run/delete-account (in the game: Profile -> Delete account) |
 | Support email | the owner's own address (stores show it publicly) |
 
 ## Short description (max 80 characters)
@@ -43,15 +44,18 @@ HOW TO PLAY
 - Keep your turn as long as you keep landing them
 - First to the pot wins it all
 
+A short tutorial walks you through your first throw and tokka.
+
 PLAY YOUR WAY
-- Play Online - matched with other players for a coin pot
+- Play Online - matched with other players for a coin pot; computer players fill in
+  when nobody else is around
 - Play With Friends - make a private room and send the link; whoever opens it joins you
 - Play vs Computer - practice any time, nothing at stake
 
 FREE, AND STAYS FREE
-There is nothing to buy. You start with 300 coins, win more by winning matches, and top
-up by watching a video if you run low. Coins are just for playing - they cannot be
-bought, sold or cashed out, and Win Points only decide your place on the leaderboard.
+There is nothing to buy. You start with 300 coins and win more by winning matches. Coins
+are just for playing - they cannot be bought, sold or cashed out, and Win Points only
+decide your place on the leaderboard.
 
 Two to four players, one quick round at a time.
 ```
@@ -99,9 +103,9 @@ The same questionnaire serves Play, Galaxy Store and Facebook.
 | Device or other IDs | A player id the game creates; no advertising id used by the game itself |
 | Location, contacts, photos, files, messages | None |
 | Is data encrypted in transit? | Yes - HTTPS and WSS |
-| Can users request deletion? | Yes - the privacy policy says how |
+| Can users request deletion? | Yes - in the game (Profile -> Delete account), or through the account deletion URL above |
 | Is data collection optional? | No - an account is needed to play online |
-| Data handled by the ad network | Meta Audience Network handles ad data under Meta's own terms |
+| Data handled by the ad network | None in the Android app yet (it has no ad network). On Facebook, Meta Audience Network handles ad data under Meta's own terms |
 
 ## Release checklist
 
@@ -111,3 +115,19 @@ The same questionnaire serves Play, Galaxy Store and Facebook.
 3. Play only: a personal developer account opened after 13 Nov 2023 must run a closed
    test with 12 testers opted in continuously for 14 days before production opens.
    Galaxy Store and Amazon have no such rule.
+4. Play Console: fill in the Data safety form and the content rating questionnaire with
+   the answers above, set the target audience to 13 and over (online play with strangers,
+   coin stakes), and give the account deletion URL.
+
+## Facebook Instant Games
+
+What the build already does for review: players go straight in as a guest (no sign-in
+screen of the game's own), invites go through Facebook's friend picker only, there are
+no links out except the privacy policy, and Free Coins stays hidden until Audience Network
+placement IDs are set in `.env.fbinstant`. Build the upload with
+`pnpm -F @char-guty/game run bundle:fb`.
+
+Still the owner's to do, in order: business verification (in review), the Approved
+Partner Program application, then the Instant Games review with the icon, cover image,
+gameplay video and screenshots, the IARC contact email, and the privacy policy and
+account deletion URLs above.

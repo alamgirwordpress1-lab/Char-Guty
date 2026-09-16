@@ -48,6 +48,15 @@ export async function fetchWallet(token: string, nickname?: string): Promise<Wal
   return (await res.json()) as WalletInfo;
 }
 
+/** Deletes the signed-in player's account on the server, for good. */
+export async function deleteAccount(token: string): Promise<void> {
+  const res = await fetch(`${SERVER_HTTP_URL}/me`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`could not delete the account (${res.status})`);
+}
+
 export interface LeaderboardEntry {
   readonly userId: string;
   readonly nickname: string;

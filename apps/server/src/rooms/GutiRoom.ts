@@ -32,6 +32,8 @@ type RoomPhase = "LOBBY" | "PLAYING" | "ENDED";
 const NEXT_ROUND_DELAY_MS = 10_000;
 /** How long a computer player takes over each action, so its moves can be followed. */
 const COMPUTER_THINK_MS = 1_200;
+/** How long an online table waits for people before computer players take its empty seats. */
+const COMPUTER_FILL_MS = 10_000;
 const LOCK_RETRY_MS = 250;
 /** Vs-computer games are practice: nothing is staked, so there's nothing to settle. */
 const NO_SETTLEMENT: Settlement = { stakes: [], payout: null, deltas: {} };
@@ -73,6 +75,9 @@ interface Seat {
  *
  * In "computer" mode the one human who opened the room is seated with computer players,
  * which take their turns from here (playComputerAction). Those games are practice only.
+ * An online ("random") table still short of people COMPUTER_FILL_MS after its first player
+ * sat down gets computer players in its empty seats too; there the people stake and win as
+ * usual, and the computers neither stake nor collect.
  */
 export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedPlayer> {
   private mode: RoomMode = "random";
@@ -90,6 +95,7 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   private actionTimer: Delayed | null = null;
   private computerTimer: Delayed | null = null;
   private nextRoundTimer: Delayed | null = null;
+  private fillTimer: Delayed | null = null;
   /** Epoch ms by which the current player must act; null when nothing is pending. */
   private turnDeadlineAt: number | null = null;
   /** Who threw first in the previous game; the next game starts from the seat after. */
@@ -128,6 +134,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
   }
 
   override async onAuth(_client: Client, options: unknown): Promise<AuthenticatedPlayer> {
+    // Computer players may have taken the last seats since matchmaking picked this room.
+    if (this.seats.length >= this.playerCount) throw new Error("room is full");
     const parsed = joinOptionsSchema.parse(options);
     const verified = await verifyAuthToken(parsed.token);
     const user = await upsertUser(db, {
@@ -156,6 +164,7 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     this.seats.push(seat);
     if (this.hostUserId === null) this.hostUserId = seat.userId;
     if (this.mode === "computer") this.seatComputers();
+    if (this.mode === "random") this.scheduleComputerFill();
     void this.withLock(() => this.tryStartMatch());
     this.broadcastState();
   }
@@ -178,9 +187,10 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     this.actionTimer?.clear();
     this.computerTimer?.clear();
     this.nextRoundTimer?.clear();
+    this.fillTimer?.clear();
   }
 
-  /** Vs-computer games are practice: only games between people put coins on the line. */
+  /** Vs-computer games are practice; everywhere else the people at the table stake coins. */
   private get staked(): boolean {
     return this.mode !== "computer";
   }
@@ -351,10 +361,12 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     if (this.pot === null || this.seats.length < this.playerCount) return;
 
     const playerIds = this.seats.map((seat) => seat.userId);
+    // Only people stake: computer players filling an online table put nothing in.
+    const stakers = this.seats.filter((seat) => !seat.isComputer).map((seat) => seat.userId);
     const pot = this.pot;
     const stake = pot / playerIds.length;
 
-    if (this.staked && !(await canAffordAll(db, playerIds, stake))) {
+    if (this.staked && !(await canAffordAll(db, stakers, stake))) {
       this.broadcast("error", { message: "a player cannot afford the stake" });
       return;
     }
@@ -381,7 +393,7 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     if (this.staked) {
       const charged: string[] = [];
       try {
-        for (const userId of playerIds) {
+        for (const userId of stakers) {
           await applyLedger(db, {
             userId,
             currency: "coin",
@@ -464,7 +476,8 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     this.computerTimer?.clear();
     this.computerTimer = null;
 
-    const settlement = this.staked ? settle(state) : NO_SETTLEMENT;
+    const computers = new Set(this.seats.filter((s) => s.isComputer).map((s) => s.userId));
+    const settlement = this.staked ? settle(state, computers) : NO_SETTLEMENT;
     if (settlement.payout !== null && this.matchId !== null) {
       const { player, coins } = settlement.payout;
       await applyLedger(db, {
@@ -509,7 +522,32 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     await this.tryStartMatch();
     if (this.roomPhase !== "LOBBY") return;
     // Short of players (someone left) or of coins: wait in LOBBY, empty seats open again.
-    if (this.seats.length < this.playerCount) await this.unlock();
+    if (this.seats.length < this.playerCount) {
+      await this.unlock();
+      this.scheduleComputerFill();
+    }
+    this.broadcastState();
+  }
+
+  /** An online table short of people: once it has waited long enough, computer players sit in. */
+  private scheduleComputerFill(): void {
+    if (this.mode !== "random" || this.fillTimer !== null) return;
+    this.fillTimer = this.runLockedSoon(() => this.fillWithComputers(), COMPUTER_FILL_MS);
+  }
+
+  private async fillWithComputers(): Promise<void> {
+    this.fillTimer = null;
+    const waiting = this.seats.some((seat) => !seat.isComputer);
+    if (this.roomPhase !== "LOBBY" || !waiting || this.seats.length >= this.playerCount) return;
+    // Locked first, so nobody is matchmade into a seat a computer is about to take.
+    await this.lock();
+    this.seatComputers();
+    await this.tryStartMatch();
+    // Started: tryStartMatch has already told everyone.
+    if (this.roomPhase !== "LOBBY") return;
+    // The game still could not start - a stake nobody can cover now - so they stand up again.
+    this.seats = this.seats.filter((seat) => !seat.isComputer);
+    await this.unlock();
     this.broadcastState();
   }
 

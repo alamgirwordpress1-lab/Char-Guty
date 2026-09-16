@@ -1,7 +1,7 @@
 import { DEFAULT_CONFIG, flickSpread, GUTI_COUNT } from "@char-guty/game-core";
 import type { Flick } from "@char-guty/game-core";
 import Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
+import { GAME_HEIGHT, GAME_WIDTH, LANDSCAPE } from "../config.js";
 import {
   FIELD_LEFT,
   FIELD_PX_H,
@@ -13,6 +13,9 @@ import {
 import type { GameRoom } from "../game/GameRoom.js";
 import { GutiView, restingAngle } from "../game/GutiView.js";
 import type { Side } from "../game/GutiView.js";
+import { markTutorialSeen } from "../game/tutorial.js";
+import type { CoachStep } from "../game/tutorial.js";
+import { TutorialCoach } from "../game/tutorialCoach.js";
 import { ads } from "../services/ads.js";
 import { fetchWallet, reconnectRoom } from "../services/net.js";
 import {
@@ -41,6 +44,8 @@ export interface GameSceneData {
   readonly initialState?: RoomStateMsg;
   /** Dev mock: no wallet refetch, no reconnect wiring. */
   readonly offline?: boolean;
+  /** The first-launch lesson, against a TutorialRoom: coached, with nothing at stake. */
+  readonly tutorial?: boolean;
 }
 
 type Guti = MatchStateMsg["gutis"][number];
@@ -52,6 +57,31 @@ interface RoundOver {
   readonly notice: Phaser.GameObjects.Text;
   /** Local epoch ms the next game is due; null while the room is short of players. */
   nextRoundAt: number | null;
+}
+
+interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+interface Box extends Point {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Where the HUD goes around the board. */
+interface HudLayout {
+  readonly back: Point;
+  readonly settings: Point;
+  /** Takes the settings button's place during the tutorial. */
+  readonly skip: Point & { readonly width: number };
+  readonly prize: Box;
+  readonly turn: Point & { readonly wrap: number; readonly fontSize: number };
+  /** Landscape stacks opponents down a column, gap apart; portrait spreads them across a row. */
+  readonly opponents: Point & { readonly gap: number; readonly width: number };
+  readonly me: Point & { readonly width: number };
+  readonly throwButton: Box;
+  readonly hint: Point;
 }
 
 const THROW_MS = 900;
@@ -69,10 +99,36 @@ const MAX_PULL = 110;
  */
 const ARROW_START_PX = 30;
 const ARROW_MAX_PX = 70;
-const OPPONENTS_Y = 196;
-const MY_PANEL_Y = 1110;
 /** Width of the wooden frame around the board, on screen. */
 const BOARD_FRAME = 32;
+
+/**
+ * Portrait: opponents in a row across the top, you and THROW under the board. Landscape: the
+ * board in the middle, opponents down the left, you and THROW down the right.
+ */
+const HUD: HudLayout = LANDSCAPE
+  ? {
+      back: { x: 62, y: 58 },
+      settings: { x: GAME_WIDTH - 62, y: 58 },
+      skip: { x: GAME_WIDTH - 110, y: 58, width: 170 },
+      prize: { x: 124, y: 150, width: 224, height: 72 },
+      turn: { x: GAME_WIDTH - 124, y: 220, wrap: 224, fontSize: 30 },
+      opponents: { x: 124, y: 290, gap: 140, width: 224 },
+      me: { x: GAME_WIDTH - 124, y: 380, width: 224 },
+      throwButton: { x: GAME_WIDTH - 124, y: 590, width: 224, height: 116 },
+      hint: { x: GAME_WIDTH / 2, y: 672 },
+    }
+  : {
+      back: { x: 66, y: 66 },
+      settings: { x: GAME_WIDTH - 66, y: 66 },
+      skip: { x: GAME_WIDTH - 96, y: 66, width: 150 },
+      prize: { x: GAME_WIDTH / 2, y: 66, width: 320, height: 84 },
+      turn: { x: GAME_WIDTH / 2, y: FIELD_TOP - BOARD_FRAME - 40, wrap: 680, fontSize: 34 },
+      opponents: { x: GAME_WIDTH / 2, y: 196, gap: 12, width: 0 },
+      me: { x: 210, y: 1110, width: 380 },
+      throwButton: { x: 560, y: 1110, width: 280, height: 116 },
+      hint: { x: GAME_WIDTH / 2, y: FIELD_TOP + FIELD_PX_H + BOARD_FRAME + 48 },
+    };
 
 /**
  * Server-authoritative match view. Everything the server sends is applied through a
@@ -85,6 +141,8 @@ const BOARD_FRAME = 32;
 export class GameScene extends Phaser.Scene {
   private room!: GameRoom;
   private offline = false;
+  private tutorial = false;
+  private coach: TutorialCoach | null = null;
   private me = "";
   private alive = false;
   private readonly nicknames = new Map<string, string>();
@@ -118,6 +176,7 @@ export class GameScene extends Phaser.Scene {
   create(data: GameSceneData): void {
     this.room = data.room;
     this.offline = data.offline ?? false;
+    this.tutorial = data.tutorial ?? false;
     this.me = getSession().userId;
     this.alive = true;
     this.nicknames.clear();
@@ -136,6 +195,13 @@ export class GameScene extends Phaser.Scene {
     this.buildBoard();
     this.buildControls();
     this.buildOverlay();
+    this.coach = this.tutorial
+      ? new TutorialCoach(this, {
+          throwButton: HUD.throwButton,
+          gutiPosition: (id) => this.gutis.get(id) ?? null,
+          finish: () => this.leaveToHome(),
+        })
+      : null;
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => this.updateAim(pointer));
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => this.endAim(pointer));
@@ -144,7 +210,7 @@ export class GameScene extends Phaser.Scene {
     this.bindRoom(this.room);
     const initial = data.initialState;
     if (initial !== undefined) this.enqueue(() => this.applyState(initial));
-    if (!this.offline) void this.refreshWallet();
+    if (!this.offline && !this.tutorial) void this.refreshWallet();
     gameplayStarted();
   }
 
@@ -169,13 +235,28 @@ export class GameScene extends Phaser.Scene {
   // ---- construction ----
 
   private buildTopBar(): void {
-    iconButton(this, 66, 66, "icon-back", () => this.confirmLeave(), { size: 80 });
-    panel(this, GAME_WIDTH / 2, 66, 320, 84, "glass");
-    this.prizeIcon = this.add.image(GAME_WIDTH / 2 - 112, 66, "icon-coin").setDisplaySize(50, 50);
+    iconButton(this, HUD.back.x, HUD.back.y, "icon-back", () => this.confirmLeave(), { size: 80 });
+    const { prize } = HUD;
+    panel(this, prize.x, prize.y, prize.width, prize.height, "glass");
+    const coin = LANDSCAPE ? 44 : 50;
+    this.prizeIcon = this.add
+      .image(prize.x - prize.width / 2 + 48, prize.y, "icon-coin")
+      .setDisplaySize(coin, coin);
     this.prizeText = this.add
-      .text(GAME_WIDTH / 2 + 20, 66, "", { ...TEXT.heading, color: COLOR.goldText })
+      .text(prize.x + 20, prize.y, "", { ...TEXT.heading, color: COLOR.goldText })
       .setOrigin(0.5);
-    iconButton(this, GAME_WIDTH - 66, 66, "icon-gear", () => openSettings(this), { size: 80 });
+    if (this.tutorial) {
+      glossyButton(this, HUD.skip.x, HUD.skip.y, "SKIP", () => this.leaveToHome(), {
+        width: HUD.skip.width,
+        height: 76,
+        color: "orange",
+        fontSize: 28,
+      });
+    } else {
+      iconButton(this, HUD.settings.x, HUD.settings.y, "icon-gear", () => openSettings(this), {
+        size: 80,
+      });
+    }
   }
 
   private buildBoard(): void {
@@ -194,26 +275,31 @@ export class GameScene extends Phaser.Scene {
       52,
     );
     this.add.image(cx, cy, "courtyard-bg").setDisplaySize(FIELD_PX_W, FIELD_PX_H);
+    const { turn } = HUD;
     this.turnText = this.add
-      .text(GAME_WIDTH / 2, FIELD_TOP - BOARD_FRAME - 40, "", { ...TEXT.title, fontSize: "34px" })
+      .text(turn.x, turn.y, "", {
+        ...TEXT.title,
+        fontSize: `${turn.fontSize}px`,
+        align: "center",
+        wordWrap: { width: turn.wrap },
+      })
       .setOrigin(0.5);
     this.aimGfx = this.add.graphics().setDepth(10);
   }
 
   private buildControls(): void {
     this.hintText = this.add
-      .text(GAME_WIDTH / 2, FIELD_TOP + FIELD_PX_H + BOARD_FRAME + 48, "", {
-        ...TEXT.body,
-        color: COLOR.muted,
-        align: "center",
-      })
+      .text(HUD.hint.x, HUD.hint.y, "", { ...TEXT.body, color: COLOR.muted, align: "center" })
       .setOrigin(0.5);
-    this.throwBtn = glossyButton(this, 560, MY_PANEL_Y, "THROW", () => this.sendThrow(), {
-      width: 280,
-      height: 116,
-      color: "green",
-      fontSize: 42,
-    });
+    const { throwButton } = HUD;
+    this.throwBtn = glossyButton(
+      this,
+      throwButton.x,
+      throwButton.y,
+      "THROW",
+      () => this.sendThrow(),
+      { width: throwButton.width, height: throwButton.height, color: "green", fontSize: 42 },
+    );
     this.throwBtn.container.setVisible(false);
   }
 
@@ -247,6 +333,8 @@ export class GameScene extends Phaser.Scene {
       const nextRoundAt = Date.now() + payload.nextRoundInMs;
       this.enqueue(() => this.showRoundOver(payload, nextRoundAt));
     });
+    // Only the tutorial's room coaches; queued, so each step shows once the play before it has.
+    room.onMessage<CoachStep>("coach", (step) => this.enqueue(() => this.coach?.show(step)));
     room.onMessage<{ message: string }>("error", (payload) => this.showError(payload.message));
     room.onLeave((code) => {
       if (code !== 1000) void this.handleDisconnect();
@@ -288,7 +376,8 @@ export class GameScene extends Phaser.Scene {
     this.throwBtn.setEnabled(true);
     this.canTokka = myTurn && match.phase === "TOKKA";
     if (!this.canTokka) this.cancelAim();
-    this.hintText.setText(this.canTokka ? this.tokkaHint() : "");
+    // In the tutorial the coach does the explaining.
+    this.hintText.setText(this.canTokka && !this.tutorial ? this.tokkaHint() : "");
   }
 
   /** While the result is up, a live game in the room is the next one, scores back at zero. */
@@ -356,8 +445,8 @@ export class GameScene extends Phaser.Scene {
     const practice = state.mode === "computer";
     this.prizeIcon.setVisible(!practice);
     this.prizeText
-      .setText(practice ? "PRACTICE" : `WIN ${match.pot}`)
-      .setX(GAME_WIDTH / 2 + (practice ? 0 : 20));
+      .setText(this.tutorial ? "HOW TO PLAY" : practice ? "PRACTICE" : `WIN ${match.pot}`)
+      .setX(HUD.prize.x + (practice ? 0 : 20));
 
     this.seatPlayers(match.players);
     for (const id of match.players) {
@@ -376,7 +465,6 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  /** Opponents across the top, you along the bottom next to the throw button. */
   private seatPlayers(players: readonly string[]): void {
     const seating = players.join("|");
     if (seating === this.seating) return;
@@ -385,19 +473,27 @@ export class GameScene extends Phaser.Scene {
     this.panels.clear();
 
     const opponents = players.filter((id) => id !== this.me);
-    const width = opponents.length === 1 ? 440 : opponents.length === 2 ? 336 : 222;
-    const gap = 12;
-    const total = opponents.length * width + (opponents.length - 1) * gap;
+    const { opponents: spot } = HUD;
+    const width = LANDSCAPE
+      ? spot.width
+      : opponents.length === 1
+        ? 440
+        : opponents.length === 2
+          ? 336
+          : 222;
+    const across = opponents.length * width + (opponents.length - 1) * spot.gap;
     opponents.forEach((id, i) => {
-      const x = GAME_WIDTH / 2 - total / 2 + width / 2 + i * (width + gap);
+      const x = LANDSCAPE ? spot.x : spot.x - across / 2 + width / 2 + i * (width + spot.gap);
+      const y = LANDSCAPE ? spot.y + i * spot.gap : spot.y;
       const name = this.nicknames.get(id) ?? "Player";
-      this.panels.set(id, new PlayerPanel(this, x, OPPONENTS_Y, width, { name, id, isMe: false }));
+      this.panels.set(id, new PlayerPanel(this, x, y, width, { name, id, isMe: false }));
     });
     if (players.includes(this.me)) {
+      const { me } = HUD;
       const name = getSession().nickname;
       this.panels.set(
         this.me,
-        new PlayerPanel(this, 210, MY_PANEL_Y, 380, { name, id: this.me, isMe: true }),
+        new PlayerPanel(this, me.x, me.y, me.width, { name, id: this.me, isMe: true }),
       );
     }
   }
@@ -605,7 +701,8 @@ export class GameScene extends Phaser.Scene {
     if (this.aim !== null || !this.canTokka) return;
     this.aim = { shooter: view, pointerId: pointer.id };
     view.setHighlight("active");
-    this.hintText.setText("Pull further back for more power");
+    this.coach?.onAim();
+    if (!this.tutorial) this.hintText.setText("Pull further back for more power");
   }
 
   private updateAim(pointer: Phaser.Input.Pointer): void {
@@ -663,7 +760,8 @@ export class GameScene extends Phaser.Scene {
     const flick = this.flickFrom(shooter, pointer);
     if (!this.canTokka) return;
     if (flick === null) {
-      this.hintText.setText(this.tokkaHint());
+      if (this.tutorial) this.coach?.remind();
+      else this.hintText.setText(this.tokkaHint());
       return;
     }
     this.canTokka = false;
@@ -697,8 +795,6 @@ export class GameScene extends Phaser.Scene {
     if (!this.offline) void this.refreshWallet();
     this.roundOver?.container.destroy();
 
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
     const won = payload.winner !== null && payload.winner === this.me;
     const staked = payload.settlement.stakes.length > 0;
     const delta = payload.settlement.deltas[this.me] ?? 0;
@@ -706,49 +802,50 @@ export class GameScene extends Phaser.Scene {
 
     // Interactive only to swallow input meant for the board underneath.
     const dim = this.add
-      .rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, COLOR.deepNavy, 0.8)
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLOR.deepNavy, 0.8)
       .setInteractive();
-    const parts: Phaser.GameObjects.GameObject[] = [
-      dim,
-      panel(this, cx, cy + 60, 600, 660, "card"),
-      this.add.image(cx, cy - 250, "burst").setDisplaySize(270, 270),
-      this.add.image(cx, cy - 252, won ? "icon-crown" : "icon-trophy").setDisplaySize(120, 120),
+    // Laid out around its own centre; landscape shrinks it to fit the shorter screen.
+    const card = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setScale(LANDSCAPE ? 0.8 : 1);
+    card.add([
+      panel(this, 0, 60, 600, 660, "card"),
+      this.add.image(0, -250, "burst").setDisplaySize(270, 270),
+      this.add.image(0, -252, won ? "icon-crown" : "icon-trophy").setDisplaySize(120, 120),
       this.add
-        .text(cx, cy - 70, won ? "YOU WON!" : "YOU LOST", {
+        .text(0, -70, won ? "YOU WON!" : "YOU LOST", {
           ...TEXT.hero,
           fontSize: "66px",
           color: won ? COLOR.goldText : COLOR.white,
         })
         .setOrigin(0.5),
-    ];
+    ]);
     if (!won && winner !== null) {
-      parts.push(this.add.text(cx, cy + 4, `${winner} won this game`, TEXT.body).setOrigin(0.5));
+      card.add(this.add.text(0, 4, `${winner} won this game`, TEXT.body).setOrigin(0.5));
     }
     if (staked) {
       const sign = delta > 0 ? "+" : "";
-      parts.push(
-        this.add.image(cx - 70, cy + 76, "icon-coin").setDisplaySize(56, 56),
+      card.add([
+        this.add.image(-70, 76, "icon-coin").setDisplaySize(56, 56),
         this.add
-          .text(cx - 32, cy + 76, `${sign}${delta}`, {
+          .text(-32, 76, `${sign}${delta}`, {
             ...TEXT.title,
             color: delta >= 0 ? COLOR.win : COLOR.lose,
           })
           .setOrigin(0, 0.5),
-      );
+      ]);
     }
-    const status = this.add.text(cx, cy + 164, "", TEXT.body).setOrigin(0.5);
+    const status = this.add.text(0, 164, "", TEXT.body).setOrigin(0.5);
     const notice = this.add
-      .text(cx, cy + 212, "", { ...TEXT.small, align: "center", wordWrap: { width: 520 } })
+      .text(0, 212, "", { ...TEXT.small, align: "center", wordWrap: { width: 520 } })
       .setOrigin(0.5);
-    const home = glossyButton(this, cx, cy + 300, "HOME", () => this.leaveToHome(), {
+    const home = glossyButton(this, 0, 300, "HOME", () => this.leaveToHome(), {
       width: 360,
       height: 96,
       color: "blue",
       icon: "icon-home",
     });
-    parts.push(status, notice, home.container);
+    card.add([status, notice, home.container]);
 
-    const container = this.add.container(0, 0, parts).setDepth(90);
+    const container = this.add.container(0, 0, [dim, card]).setDepth(90);
     this.roundOver = { container, status, notice, nextRoundAt };
   }
 
@@ -774,6 +871,11 @@ export class GameScene extends Phaser.Scene {
   private showError(message: string): void {
     if (this.roundOver !== null) this.roundOver.notice.setText(message);
     else void this.toast(message);
+  }
+
+  /** Android's back button: the same as the back arrow on screen. */
+  handleBack(): void {
+    this.confirmLeave();
   }
 
   /** Leaving mid-game forfeits the entry, so ask first - unless nothing is at stake. */
@@ -830,6 +932,8 @@ export class GameScene extends Phaser.Scene {
 
   private leaveToHome(): void {
     void this.room.leave(true);
+    // Finished or skipped, the tutorial doesn't come back by itself.
+    if (this.tutorial) markTutorialSeen();
     if (this.offline) {
       // The dev mock's stand-in session can't talk to the real server, so start over.
       clearSession();
@@ -845,6 +949,7 @@ export class GameScene extends Phaser.Scene {
     reportLeftRoom();
     this.aim = null;
     this.roundOver = null;
+    this.coach = null;
     this.room.removeAllListeners();
     this.input.removeAllListeners();
     this.gutis.clear();

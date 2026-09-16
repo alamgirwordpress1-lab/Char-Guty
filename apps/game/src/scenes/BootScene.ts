@@ -1,10 +1,15 @@
 import Phaser from "phaser";
-import { GAME_WIDTH } from "../config.js";
+import { GAME_WIDTH, LANDSCAPE } from "../config.js";
 import { getMockGame } from "../dev.js";
 import { bindSound } from "../services/audio.js";
 import { currentFirebaseSession, isFirebaseConfigured } from "../services/auth.js";
 import { fetchWallet } from "../services/net.js";
-import { isCrazyGames, reportLoadingProgress, startPlatformGame } from "../services/platform.js";
+import {
+  isCrazyGames,
+  isFacebookInstant,
+  reportLoadingProgress,
+  startPlatformGame,
+} from "../services/platform.js";
 import { forgetSession, loadSession, saveSession } from "../services/sessionStore.js";
 import { completeSignIn, guestSignIn, signInWithCrazyGames } from "../services/signIn.js";
 import { setSession } from "../state/session.js";
@@ -56,6 +61,11 @@ const SOUNDS: readonly (readonly [key: string, file: string])[] = [
 
 type Restored = "signed-in" | "signed-out" | "offline";
 
+/** How far down the loading screen each piece sits, in either layout. */
+const Y = LANDSCAPE
+  ? { title: 250, bar: 380, status: 450, retry: 560 }
+  : { title: 520, bar: 680, status: 750, retry: 880 };
+
 /**
  * The loading screen: loads every asset behind a progress bar, waits for the game font,
  * then signs the player straight back in if this device remembers them. Any image that
@@ -74,13 +84,13 @@ export class BootScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
     this.cameras.main.setBackgroundColor(COLOR.navy);
     this.add
-      .text(cx, 520, "CHAR GUTY", { fontFamily: FONT, fontSize: "76px", fontStyle: "700" })
+      .text(cx, Y.title, "CHAR GUTY", { fontFamily: FONT, fontSize: "76px", fontStyle: "700" })
       .setOrigin(0.5);
     const barWidth = 480;
-    this.add.rectangle(cx, 680, barWidth + 16, 44, COLOR.deepNavy).setStrokeStyle(4, 0x6b9cf0);
-    const fill = this.add.rectangle(cx - barWidth / 2, 680, 0, 28, COLOR.gold).setOrigin(0, 0.5);
+    this.add.rectangle(cx, Y.bar, barWidth + 16, 44, COLOR.deepNavy).setStrokeStyle(4, 0x6b9cf0);
+    const fill = this.add.rectangle(cx - barWidth / 2, Y.bar, 0, 28, COLOR.gold).setOrigin(0, 0.5);
     this.status = this.add
-      .text(cx, 750, "Loading 0%", { fontFamily: FONT, fontSize: "26px", color: COLOR.muted })
+      .text(cx, Y.status, "Loading 0%", { fontFamily: FONT, fontSize: "26px", color: COLOR.muted })
       .setOrigin(0.5);
 
     this.load.on("progress", (progress: number) => {
@@ -120,13 +130,14 @@ export class BootScene extends Phaser.Scene {
     const restored = await restoreSession();
     if (restored === "offline") {
       this.status.setText("Can't reach the game server").setColor(COLOR.lose);
-      glossyButton(this, GAME_WIDTH / 2, 880, "TRY AGAIN", () => this.scene.restart(), {
+      glossyButton(this, GAME_WIDTH / 2, Y.retry, "TRY AGAIN", () => this.scene.restart(), {
         width: 340,
         height: 96,
       });
       return;
     }
-    if (restored === "signed-out" && isCrazyGames() && (await signInAsGuest())) {
+    const noSignInScreen = isCrazyGames() || isFacebookInstant;
+    if (restored === "signed-out" && noSignInScreen && (await signInAsGuest())) {
       this.scene.start("Home");
       return;
     }
@@ -156,8 +167,9 @@ async function waitForFont(): Promise<void> {
 }
 
 /**
- * CrazyGames wants players dropped straight into the game, so a first visit there starts
- * as a guest with no sign-in screen. If that fails, the screen is still there to retry.
+ * CrazyGames and Facebook want players dropped straight into the game - an Instant Game
+ * must not put a sign-in of its own in front of them - so a first visit there starts as a
+ * guest. If that fails, the sign-in screen is still there to retry.
  */
 async function signInAsGuest(): Promise<boolean> {
   try {

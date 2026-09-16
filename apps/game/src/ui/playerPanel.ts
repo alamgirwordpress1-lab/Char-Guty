@@ -3,7 +3,8 @@ import { COLOR, TEXT } from "./theme.js";
 import { avatar, panel, shortName } from "./widgets.js";
 
 const HEIGHT = 124;
-const AVATAR = 84;
+/** Narrower seats get a smaller avatar, so a name like "Computer 2" still fits beside it. */
+const COMPACT_WIDTH = 260;
 
 export interface PanelSeat {
   readonly name: string;
@@ -18,27 +19,32 @@ export class PlayerPanel {
   private readonly ring: Phaser.GameObjects.Graphics;
   private readonly score: Phaser.GameObjects.Text;
   private readonly avatarX: number;
+  private readonly ringRadius: number;
 
   constructor(scene: Phaser.Scene, x: number, y: number, width: number, seat: PanelSeat) {
+    const compact = width < COMPACT_WIDTH;
+    const avatarSize = compact ? 64 : 84;
     const left = -width / 2;
-    this.avatarX = left + 64;
+    const textX = left + (compact ? 96 : 122);
+    this.avatarX = left + (compact ? 50 : 64);
+    this.ringRadius = avatarSize / 2 + (compact ? 10 : 14);
     this.highlight = scene.add.graphics();
     this.highlight
       .lineStyle(5, COLOR.gold, 1)
       .strokeRoundedRect(left + 2, -HEIGHT / 2 + 2, width - 4, HEIGHT - 4, 24)
       .setVisible(false);
     this.ring = scene.add.graphics();
-    const label = seat.isMe ? "You" : shortName(seat.name, width >= 320 ? 12 : 7);
+    const label = seat.isMe ? "You" : shortName(seat.name, compact ? 10 : 12);
     const name = scene.add
-      .text(left + 122, -22, label, { ...TEXT.heading, fontSize: "26px" })
+      .text(textX, -22, label, { ...TEXT.heading, fontSize: compact ? "22px" : "26px" })
       .setOrigin(0, 0.5);
     this.score = scene.add
-      .text(left + 122, 22, "", { ...TEXT.body, color: COLOR.goldText })
+      .text(textX, 22, "", { ...TEXT.body, color: COLOR.goldText })
       .setOrigin(0, 0.5);
     this.container = scene.add.container(x, y, [
       panel(scene, 0, 0, width, HEIGHT, "glass"),
       this.highlight,
-      avatar(scene, this.avatarX, 0, seat.name, seat.id, AVATAR),
+      avatar(scene, this.avatarX, 0, seat.name, seat.id, avatarSize),
       this.ring,
       name,
       this.score,
@@ -63,7 +69,7 @@ export class PlayerPanel {
     const start = -Math.PI / 2;
     this.ring.lineStyle(8, color, 1);
     this.ring.beginPath();
-    this.ring.arc(this.avatarX, 0, AVATAR / 2 + 14, start, start + Math.PI * 2 * left, false);
+    this.ring.arc(this.avatarX, 0, this.ringRadius, start, start + Math.PI * 2 * left, false);
     this.ring.strokePath();
   }
 }

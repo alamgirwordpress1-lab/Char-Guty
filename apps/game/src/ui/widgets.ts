@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
+import { GAME_HEIGHT, GAME_WIDTH, LANDSCAPE } from "../config.js";
 import { getSession } from "../state/session.js";
 import { COLOR, TEXT } from "./theme.js";
 
@@ -165,11 +165,10 @@ export function panel(
   return nineSlice(scene, x, y, `panel-${kind}`, width, height, 36);
 }
 
-/** The menu background, stretched over the whole game. */
+/** The menu background, covering the whole game: the art is portrait, so landscape crops it. */
 export function menuBackground(scene: Phaser.Scene): Phaser.GameObjects.Image {
-  return scene.add
-    .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "ui-bg")
-    .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+  const bg = scene.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "ui-bg");
+  return bg.setScale(Math.max(GAME_WIDTH / bg.width, GAME_HEIGHT / bg.height));
 }
 
 const AVATAR_COLORS = [0xef4444, 0xf59e0b, 0x10b981, 0x3b82f6, 0x8b5cf6, 0xec4899, 0x14b8a6];
@@ -309,12 +308,12 @@ export function dialog(
 /** A short message that fades in near the bottom of the screen, then drifts up and away. */
 export function notify(scene: Phaser.Scene, message: string): void {
   const text = scene.add
-    .text(GAME_WIDTH / 2, GAME_HEIGHT - 240, message, {
+    .text(GAME_WIDTH / 2, GAME_HEIGHT - (LANDSCAPE ? 130 : 240), message, {
       ...TEXT.body,
       backgroundColor: "rgba(6,16,46,0.9)",
       padding: { x: 26, y: 16 },
       align: "center",
-      wordWrap: { width: GAME_WIDTH - 140 },
+      wordWrap: { width: Math.min(GAME_WIDTH - 140, 860) },
     })
     .setOrigin(0.5)
     .setDepth(300);

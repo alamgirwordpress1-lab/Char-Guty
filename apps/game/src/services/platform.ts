@@ -270,7 +270,13 @@ function roomCodeFromUrl(): string | null {
 export function roomLink(roomCode: string): string {
   // On CrazyGames the game sits in a frame on their page, so only their own link finds it.
   if (crazyGames !== null) return crazyGames.game.inviteLink({ room: roomCode });
-  const url = new URL(window.location.href);
+  // The Android app runs from a local address that means nothing to a friend, so its
+  // invites point at the web game, which opens the same room.
+  const base =
+    import.meta.env.MODE === "android"
+      ? (import.meta.env.VITE_SITE_URL ?? "https://charguty.online/")
+      : window.location.href;
+  const url = new URL(base);
   url.search = "";
   url.hash = "";
   url.searchParams.set("room", roomCode);

@@ -1,21 +1,49 @@
 import Phaser from "phaser";
-import { GAME_WIDTH } from "../config.js";
+import { LANDSCAPE } from "../config.js";
 import { signOutFirebase } from "../services/auth.js";
-import { fetchWallet } from "../services/net.js";
+import { deleteAccount, fetchWallet } from "../services/net.js";
 import { isCrazyGamesBuild } from "../services/platform.js";
 import { forgetSession } from "../services/sessionStore.js";
 import { clearSession, getSession, updateBalance } from "../state/session.js";
-import { openFreeCoins } from "../ui/freeCoins.js";
+import { freeCoinsOffered, openFreeCoins } from "../ui/freeCoins.js";
 import { COLOR, TEXT } from "../ui/theme.js";
 import {
   avatar,
   dialog,
   glossyButton,
   menuBackground,
+  notify,
   panel,
   screenHeader,
 } from "../ui/widgets.js";
-import type { CoinPill } from "../ui/widgets.js";
+import type { CoinPill, GameButton } from "../ui/widgets.js";
+
+type Point = readonly [x: number, y: number];
+type Spot =
+  "avatar" | "name" | "account" | "coins" | "points" | "leaderboard" | "signOut" | "deleteAccount";
+
+/** Portrait: everything down the middle. Landscape: who you are on the left, your numbers on the right. */
+const LAYOUT: Record<Spot, Point> = LANDSCAPE
+  ? {
+      avatar: [330, 300],
+      name: [330, 460],
+      account: [330, 515],
+      coins: [780, 290],
+      points: [1110, 290],
+      leaderboard: [945, 480],
+      signOut: [945, 610],
+      deleteAccount: [945, 692],
+    }
+  : {
+      avatar: [360, 330],
+      name: [360, 492],
+      account: [360, 548],
+      coins: [195, 720],
+      points: [525, 720],
+      leaderboard: [360, 920],
+      signOut: [360, 1050],
+      deleteAccount: [360, 1170],
+    };
 
 export class ProfileScene extends Phaser.Scene {
   private pill!: CoinPill;
@@ -28,21 +56,21 @@ export class ProfileScene extends Phaser.Scene {
 
   create(): void {
     const session = getSession();
-    const cx = GAME_WIDTH / 2;
     menuBackground(this);
     this.pill = screenHeader(
       this,
       "Profile",
       () => this.scene.start("Home"),
-      () => openFreeCoins(this, (coins) => this.showBalance(coins, getSession().winPoints)),
+      freeCoinsOffered
+        ? () => openFreeCoins(this, (coins) => this.showBalance(coins, getSession().winPoints))
+        : undefined,
     );
 
-    avatar(this, cx, 330, session.nickname, session.userId, 190);
-    this.add.text(cx, 492, session.nickname, TEXT.title).setOrigin(0.5);
+    avatar(this, ...LAYOUT.avatar, session.nickname, session.userId, 190);
+    this.add.text(...LAYOUT.name, session.nickname, TEXT.title).setOrigin(0.5);
     this.add
       .text(
-        cx,
-        548,
+        ...LAYOUT.account,
         session.isGuest
           ? "Guest account on this device"
           : isCrazyGamesBuild
@@ -52,22 +80,34 @@ export class ProfileScene extends Phaser.Scene {
       )
       .setOrigin(0.5);
 
-    this.coinsValue = this.statCard(cx - 165, 720, "icon-coin", "Coins", session.coins);
-    this.pointsValue = this.statCard(cx + 165, 720, "icon-trophy", "Win Points", session.winPoints);
+    this.coinsValue = this.statCard(...LAYOUT.coins, "icon-coin", "Coins", session.coins);
+    this.pointsValue = this.statCard(
+      ...LAYOUT.points,
+      "icon-trophy",
+      "Win Points",
+      session.winPoints,
+    );
 
-    glossyButton(this, cx, 920, "LEADERBOARD", () => this.scene.start("Leaderboard"), {
-      width: 460,
-      height: 100,
-      color: "blue",
-      icon: "icon-trophy",
-    });
+    glossyButton(
+      this,
+      ...LAYOUT.leaderboard,
+      "LEADERBOARD",
+      () => this.scene.start("Leaderboard"),
+      { width: 460, height: 100, color: "blue", icon: "icon-trophy" },
+    );
     // On CrazyGames, signing in and out is CrazyGames' business, not the game's.
     if (!isCrazyGamesBuild) {
-      glossyButton(this, cx, 1050, "SIGN OUT", () => this.confirmSignOut(), {
+      glossyButton(this, ...LAYOUT.signOut, "SIGN OUT", () => this.confirmSignOut(), {
         width: 460,
         height: 100,
         color: "gray",
       });
+      // The stores require that an account made in the game can be deleted from it too.
+      this.add
+        .text(...LAYOUT.deleteAccount, "Delete account", { ...TEXT.small, color: COLOR.lose })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerup", () => this.confirmDeleteAccount());
     }
     void this.refreshWallet();
   }
@@ -128,6 +168,38 @@ export class ProfileScene extends Phaser.Scene {
       color: "orange",
     });
     box.add(warning, confirm.container);
+  }
+
+  private confirmDeleteAccount(): void {
+    const box = dialog(this, "Delete Account?", 600, 500);
+    const warning = this.add
+      .text(
+        0,
+        -40,
+        "Your player, coins and win points\nare deleted for good.\nThis can't be undone.",
+        { ...TEXT.body, align: "center" },
+      )
+      .setOrigin(0.5);
+    const confirm = glossyButton(this, 0, 150, "DELETE", () => void this.deleteAccount(confirm), {
+      width: 360,
+      height: 92,
+      color: "orange",
+    });
+    box.add(warning, confirm.container);
+  }
+
+  private async deleteAccount(button: GameButton): Promise<void> {
+    button.setEnabled(false);
+    try {
+      await deleteAccount(getSession().token);
+    } catch {
+      button.setEnabled(true);
+      if (this.sys.isActive()) {
+        notify(this, "Couldn't delete the account - check your connection and try again");
+      }
+      return;
+    }
+    await this.signOut();
   }
 
   private async signOut(): Promise<void> {

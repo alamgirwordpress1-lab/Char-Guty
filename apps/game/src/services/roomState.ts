@@ -10,7 +10,8 @@ export interface RoomStateMsg {
     sessionId: string;
     userId: string;
     nickname: string;
-    /** A server-driven computer player, only ever seated in vs-computer games. */
+    /** A server-driven computer player: every seat but yours in vs-computer games, and the
+     * empty seats of an online table nobody else came to. */
     isComputer: boolean;
   }[];
   /** Seats that must be filled before a game can start, computer players included. */

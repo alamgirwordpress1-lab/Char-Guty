@@ -80,6 +80,32 @@ onRoomInvite((code) => {
   } satisfies MatchmakingSceneData);
 });
 
+// Android's back button walks the web view's history, and with none left it closes the app -
+// even in the middle of a game. A guard entry turns a press into the game's own back instead;
+// on Home (or before sign-in) the guard is let go, so a second press still closes the app.
+if (import.meta.env.MODE === "android") {
+  const exitScenes = new Set(["Boot", "Login", "Home"]);
+  const guard = (): void => {
+    if ((history.state as { charGutyGuard?: boolean } | null)?.charGutyGuard !== true) {
+      history.pushState({ charGutyGuard: true }, "");
+    }
+  };
+  game.events.once("ready", () => {
+    for (const scene of game.scene.scenes) {
+      scene.events.on("create", () => {
+        if (!exitScenes.has(scene.scene.key)) guard();
+      });
+    }
+  });
+  window.addEventListener("popstate", () => {
+    const scene = game.scene.getScenes(true)[0];
+    if (scene === undefined || exitScenes.has(scene.scene.key)) return;
+    guard();
+    if (scene instanceof GameScene || scene instanceof MatchmakingScene) scene.handleBack();
+    else scene.scene.start("Home");
+  });
+}
+
 // Store screenshots have to come out of the real game at its own 720x1280, and a WebGL
 // canvas reads back blank through toDataURL - only the renderer's own snapshot works.
 // Opening the game with ?snap hands the instance over so a capture script can call it.

@@ -1,7 +1,7 @@
 import { SIGNUP_BONUS_COINS } from "@char-guty/shared";
 import { and, eq } from "drizzle-orm";
 import { applyLedger } from "./walletService.js";
-import { users, wallets } from "./schema.js";
+import { adRewards, ledger, users, wallets } from "./schema.js";
 import type { Database } from "./types.js";
 
 export interface UpsertUserInput {
@@ -98,4 +98,28 @@ export async function signInCrazyGamesUser(db: Database, input: CrazyGamesSignIn
     nickname: input.username,
     isGuest: false,
   });
+}
+
+/**
+ * Deletes a player for good - account, wallet, coin history and ad rewards - as the stores
+ * require an account made in the game to be deletable from it. Matches they played keep
+ * only the bare player id. False when there was no such player.
+ */
+export async function deleteUser(
+  db: Database,
+  provider: string,
+  providerId: string,
+): Promise<boolean> {
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.provider, provider), eq(users.providerId, providerId)));
+  if (user === undefined) return false;
+  await db.transaction(async (tx) => {
+    await tx.delete(adRewards).where(eq(adRewards.userId, user.id));
+    await tx.delete(ledger).where(eq(ledger.userId, user.id));
+    await tx.delete(wallets).where(eq(wallets.userId, user.id));
+    await tx.delete(users).where(eq(users.id, user.id));
+  });
+  return true;
 }

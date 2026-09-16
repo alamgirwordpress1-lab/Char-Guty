@@ -230,9 +230,18 @@ export function reduceTimeout(state: MatchState): ActionResult {
   return { state: passTurn(state, turn, "TIMEOUT", events), events };
 }
 
-export function settle(state: MatchState): Settlement {
-  const stakes = state.players.map((player) => ({ player, coins: -state.stake }));
-  const payout = state.winner === null ? null : { player: state.winner, coins: state.pot };
+/**
+ * What a finished match paid in and pays out. Computer players - seated to fill an online
+ * table nobody else came to - never stake, and a game a computer wins pays nobody.
+ */
+export function settle(state: MatchState, computers: ReadonlySet<string> = new Set()): Settlement {
+  const stakes = state.players
+    .filter((player) => !computers.has(player))
+    .map((player) => ({ player, coins: -state.stake }));
+  const payout =
+    state.winner === null || computers.has(state.winner)
+      ? null
+      : { player: state.winner, coins: state.pot };
   const deltas: Record<string, number> = {};
   for (const stake of stakes) deltas[stake.player] = stake.coins;
   if (payout !== null) deltas[payout.player] = (deltas[payout.player] ?? 0) + payout.coins;

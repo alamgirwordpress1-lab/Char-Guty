@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH } from "../config.js";
+import { GAME_HEIGHT, GAME_WIDTH, LANDSCAPE } from "../config.js";
 import { STARTER_ARENA } from "../game/arenas.js";
+import { createTutorialGame, hasSeenTutorial } from "../game/tutorial.js";
 import { fetchWallet } from "../services/net.js";
 import {
   isCrazyGamesBuild,
@@ -8,7 +9,7 @@ import {
   takeInvitedRoomCode,
 } from "../services/platform.js";
 import { getSession, updateBalance } from "../state/session.js";
-import { openFreeCoins } from "../ui/freeCoins.js";
+import { freeCoinsOffered, openFreeCoins } from "../ui/freeCoins.js";
 import { openSettings } from "../ui/settingsDialog.js";
 import { COLOR, TEXT } from "../ui/theme.js";
 import {
@@ -55,6 +56,22 @@ const MODES: readonly ModeTile[] = [
   },
 ];
 
+/**
+ * Portrait: the logo, the three modes stacked under it, the nav along the bottom.
+ * Landscape: the logo with the nav under it on the left, the modes stacked on the right.
+ */
+const LAYOUT = LANDSCAPE
+  ? {
+      logo: { x: 330, y: 266 },
+      tiles: { x: 950, y: 258, step: 162, width: 600, height: 150, icon: 90, font: 34 },
+      nav: { x: 330, y: 600, width: 580, step: 140 },
+    }
+  : {
+      logo: { x: GAME_WIDTH / 2, y: 228 },
+      tiles: { x: GAME_WIDTH / 2, y: 560, step: 196, width: 640, height: 176, icon: 100, font: 36 },
+      nav: { x: GAME_WIDTH / 2, y: GAME_HEIGHT - 80, width: GAME_WIDTH - 24, step: 170 },
+    };
+
 export class HomeScene extends Phaser.Scene {
   private coins!: CoinPill;
   private winPoints!: Phaser.GameObjects.Text;
@@ -84,11 +101,17 @@ export class HomeScene extends Phaser.Scene {
       } satisfies MatchmakingSceneData);
       return;
     }
+    // A first visit starts with the tutorial: playing straight away, rules learnt on the mat.
+    if (!hasSeenTutorial()) {
+      this.scene.start("Game", createTutorialGame());
+      return;
+    }
 
     menuBackground(this);
     this.buildTopBar();
     this.buildLogo();
-    MODES.forEach((tile, i) => this.buildModeTile(GAME_WIDTH / 2, 560 + i * 196, tile));
+    const { tiles } = LAYOUT;
+    MODES.forEach((tile, i) => this.buildModeTile(tiles.x, tiles.y + i * tiles.step, tile));
     this.buildBottomNav();
     void this.refreshWallet();
   }
@@ -106,28 +129,28 @@ export class HomeScene extends Phaser.Scene {
     this.winPoints = this.add
       .text(136, 96, `Win Points: ${session.winPoints}`, { ...TEXT.small, color: COLOR.goldText })
       .setOrigin(0, 0.5);
-    this.coins = coinPill(this, 478, 76, session.coins, () => this.openFreeCoins());
-    iconButton(this, 648, 76, "icon-gear", () => openSettings(this), { size: 76 });
+    const onPlus = freeCoinsOffered ? () => this.openFreeCoins() : undefined;
+    this.coins = coinPill(this, GAME_WIDTH - 242, 76, session.coins, onPlus);
+    iconButton(this, GAME_WIDTH - 72, 76, "icon-gear", () => openSettings(this), { size: 76 });
   }
 
   private buildLogo(): void {
-    const cx = GAME_WIDTH / 2;
+    const { x, y } = LAYOUT.logo;
     this.add
-      .image(cx - 215, 262, "guti-flat")
+      .image(x - 215, y + 34, "guti-flat")
       .setDisplaySize(130, 65)
       .setAngle(-28);
     this.add
-      .image(cx + 215, 262, "guti-round")
+      .image(x + 215, y + 34, "guti-round")
       .setDisplaySize(130, 65)
       .setAngle(24);
-    this.add.text(cx, 228, "CHAR", TEXT.hero).setOrigin(0.5);
-    this.add.text(cx, 310, "GUTY", { ...TEXT.hero, color: COLOR.goldText }).setOrigin(0.5);
-    this.add.text(cx, 384, "The village game of throws and tokkas", TEXT.small).setOrigin(0.5);
+    this.add.text(x, y, "CHAR", TEXT.hero).setOrigin(0.5);
+    this.add.text(x, y + 82, "GUTY", { ...TEXT.hero, color: COLOR.goldText }).setOrigin(0.5);
+    this.add.text(x, y + 156, "The village game of throws and tokkas", TEXT.small).setOrigin(0.5);
   }
 
   private buildModeTile(x: number, y: number, tile: ModeTile): void {
-    const width = 640;
-    const height = 176;
+    const { width, height, icon: iconSize, font } = LAYOUT.tiles;
     const bg = this.add.nineslice(
       0,
       0,
@@ -140,12 +163,12 @@ export class HomeScene extends Phaser.Scene {
       40,
       40,
     );
-    const icon = this.add.image(-width / 2 + 96, -6, tile.icon).setDisplaySize(100, 100);
+    const icon = this.add.image(-width / 2 + 96, -6, tile.icon).setDisplaySize(iconSize, iconSize);
     const title = this.add
-      .text(-width / 2 + 180, -30, tile.title, { ...TEXT.button, fontSize: "36px" })
+      .text(-width / 2 + 180, -height * 0.17, tile.title, { ...TEXT.button, fontSize: `${font}px` })
       .setOrigin(0, 0.5);
     const subtitle = this.add
-      .text(-width / 2 + 182, 24, tile.subtitle, { ...TEXT.body, fontSize: "22px" })
+      .text(-width / 2 + 182, height * 0.14, tile.subtitle, { ...TEXT.body, fontSize: "22px" })
       .setOrigin(0, 0.5);
     const container = this.add.container(x, y, [bg, icon, title, subtitle]).setSize(width, height);
     pressable(container, () => this.open(tile.mode));
@@ -171,19 +194,29 @@ export class HomeScene extends Phaser.Scene {
   }
 
   private buildBottomNav(): void {
-    const y = GAME_HEIGHT - 80;
-    panel(this, GAME_WIDTH / 2, y, GAME_WIDTH - 24, 136, "glass");
+    const { x, y, width, step } = LAYOUT.nav;
+    panel(this, x, y, width, 136, "glass");
     const items = [
       { label: "Leaderboard", icon: "icon-trophy", open: () => this.scene.start("Leaderboard") },
-      { label: "Free Coins", icon: "icon-gift", open: () => this.openFreeCoins() },
+      ...(freeCoinsOffered
+        ? [{ label: "Free Coins", icon: "icon-gift", open: () => this.openFreeCoins() }]
+        : []),
+      {
+        label: "How to Play",
+        icon: "guti-flat",
+        open: () => this.scene.start("Game", createTutorialGame()),
+      },
       { label: "Profile", icon: "icon-user", open: () => this.scene.start("Profile") },
     ];
     items.forEach((item, i) => {
-      const icon = this.add.image(0, -18, item.icon).setDisplaySize(64, 64);
+      const image = this.add.image(0, -18, item.icon);
+      // The guti art is twice as wide as it is tall; the icons are square.
+      if (item.icon === "guti-flat") image.setDisplaySize(80, 40).setAngle(-20);
+      else image.setDisplaySize(64, 64);
       const label = this.add.text(0, 34, item.label, TEXT.small).setOrigin(0.5);
       const button = this.add
-        .container(GAME_WIDTH / 2 + (i - 1) * 226, y, [icon, label])
-        .setSize(200, 124);
+        .container(x + (i - (items.length - 1) / 2) * step, y, [image, label])
+        .setSize(step - 10, 124);
       pressable(button, item.open);
     });
   }

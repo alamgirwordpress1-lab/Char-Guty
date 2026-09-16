@@ -8,7 +8,10 @@ Traditional Bangladeshi game, 2–4 players online. Free-to-play: coins only. NO
 - Tokka: carrom-style - player grabs any guti, pulls back and releases to flick it, harder the further the pull. Nothing is pre-marked; touching any other guti scores 1 and both gutis go out, so the second tokka is between the two left; touching none is a die. The mat's edge stops gutis. Tokkas should be hard to land: every flick strays a little from its aim (server RNG), more the harder it is flicked, and the aim shows that spread. Deterministic 2D sim (circles, friction, fixed dt) in game-core; server authoritative, client only previews.
 - Guti: a 2-inch round stick split lengthwise - one flat face, a rounded back, flat ends.
 - Match: pot ∈ {100,200,300,400,500}, must divide evenly by player count. Stake = pot / players, deducted at start. First to reach `pot` points wins the whole pot. Then reset.
-- Vs Computer: the player's own choice from the lobby (like Ludo), never a matchmaking fallback. Computer players are server-driven; practice only, no coins or Win Points.
+- Vs Computer: the player's own choice from the lobby (like Ludo). Computer players are server-driven; practice only, no coins or Win Points.
+- Online: a table still short of people 10s after its first player sits gets computer players (shown as Computer) in the empty seats. People stake and win as usual; a computer never stakes, and its win pays nobody.
+- Landscape layout (1280x720) on wide screens, portrait (720x1280) on tall ones - chosen once at load.
+- First launch plays a short skippable tutorial (local, no server); Home can replay it.
 - All in-game text is English.
 
 ## Economy
