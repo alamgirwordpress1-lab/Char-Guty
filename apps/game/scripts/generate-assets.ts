@@ -3,7 +3,8 @@
  * menu UI (background, buttons, panels, board frame, icons) as SVG rasterized to PNG
  * (via sharp), plus SFX synthesized directly to PCM WAV. No external art/audio - deterministic placeholder-quality
  * assets that exercise the real loading/fallback pipeline. Re-run any time with
- * `pnpm -F game exec tsx scripts/generate-assets.ts`.
+ * `pnpm -F game exec tsx scripts/generate-assets.ts`, naming files (guti-flat.png ...) to
+ * write only those.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -12,20 +13,29 @@ import sharp from "sharp";
 const outDir = fileURLToPath(new URL("../public/assets", import.meta.url));
 mkdirSync(outDir, { recursive: true });
 
+/** File names given on the command line limit a run to those files; with none, all are written. */
+const only = new Set(process.argv.slice(2));
+
 async function writePng(name: string, svg: string): Promise<void> {
+  if (only.size > 0 && !only.has(name)) return;
   const buffer = await sharp(Buffer.from(svg)).png().toBuffer();
   writeFileSync(`${outDir}/${name}`, buffer);
   console.log(`wrote ${name}`);
 }
 
 function writeWav(name: string, samples: Float32Array): void {
+  if (only.size > 0 && !only.has(name)) return;
   writeFileSync(`${outDir}/${name}`, encodeWav(samples));
   console.log(`wrote ${name}`);
 }
 
 // ---------------------------------------------------------------------------
-// Guti sprites: a 2-inch round stick split lengthwise, seen from above - the flat cut
-// face on one side, the rounded back on the other. GutiView draws them rotated.
+// Guti sprites: a 2-inch round stick split lengthwise - half a cylinder, drawn a little
+// from the side like a log on the mat. Round side up it is a shaded half-cylinder with its
+// straight cut along the bottom; flat side up the gold cut face runs along the top with the
+// round underside below. Either way the left end shows the stick's half-round end grain:
+// straight along the bottom round side up, along the top flat side up. GutiView draws
+// them rotated.
 // ---------------------------------------------------------------------------
 
 interface GutiArt {
@@ -57,9 +67,36 @@ const ROUND_PALETTE: GutiArt = {
   outline: "#080502",
 };
 
-/** 256x128, the stick lying along x with room around it for a soft contact shadow. */
+/** Where the stick lies in its 256x128 sprite: the centres of its two ends, its long edges. */
+const STICK = { left: 26, right: 230, top: 18, bottom: 110, end: 18 };
+const STICK_HEIGHT = STICK.bottom - STICK.top;
+
+/**
+ * The outline: long edges straight, ends round like the ends of a log seen a little from the
+ * side - rounding over the top when the cut lies along the bottom, and under the bottom
+ * when it runs along the top.
+ */
+function stickOutline(cutAtBottom: boolean): string {
+  const { left, right, top, bottom, end } = STICK;
+  const h = STICK_HEIGHT;
+  return cutAtBottom
+    ? `M ${left - end} ${bottom} A ${end} ${h} 0 0 1 ${left} ${top} L ${right} ${top} A ${end} ${h} 0 0 1 ${right + end} ${bottom} Z`
+    : `M ${left - end} ${top} L ${right + end} ${top} A ${end} ${h} 0 0 1 ${right} ${bottom} L ${left} ${bottom} A ${end} ${h} 0 0 1 ${left - end} ${top} Z`;
+}
+
+/** The half-round end grain at the left end, with growth rings; `scale` < 1 draws a ring. */
+function endGrain(cutAtBottom: boolean, scale = 1): string {
+  const { left, top, bottom, end } = STICK;
+  const rx = end * scale;
+  const ry = STICK_HEIGHT * scale;
+  const ring = scale < 1;
+  return cutAtBottom
+    ? `M ${left - rx} ${bottom} A ${rx} ${ry} 0 0 1 ${left + rx} ${bottom}${ring ? "" : " Z"}`
+    : `M ${left + rx} ${top} A ${rx} ${ry} 0 0 1 ${left - rx} ${top}${ring ? "" : " Z"}`;
+}
+
 function gutiSvg(p: GutiArt): string {
-  const flat = p.face === "flat";
+  const roundUp = p.face === "round";
   return `<svg width="256" height="128" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="shadow" x="-20%" y="-50%" width="140%" height="200%">
@@ -68,55 +105,66 @@ function gutiSvg(p: GutiArt): string {
       <filter id="glow" x="-20%" y="-100%" width="140%" height="300%">
         <feGaussianBlur stdDeviation="2"/>
       </filter>
+      <linearGradient id="grain" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#efcb8a"/>
+        <stop offset="100%" stop-color="#bf8844"/>
+      </linearGradient>
     </defs>
-    <rect x="18" y="26" width="226" height="90" rx="${flat ? 14 : 30}" fill="#000000" opacity="0.38" filter="url(#shadow)"/>
-    ${flat ? flatFace(p) : roundBack(p)}
+    <path d="${stickOutline(roundUp)}" transform="translate(0 7)" fill="#000000" opacity="0.38" filter="url(#shadow)"/>
+    ${roundUp ? roundBack(p) : flatFace(p)}
+    <path d="${endGrain(roundUp)}" fill="url(#grain)" stroke="${p.outline}" stroke-width="3"/>
+    <path d="${endGrain(roundUp, 0.64)}" fill="none" stroke="#9a6428" stroke-width="2" opacity="0.75"/>
+    <path d="${endGrain(roundUp, 0.32)}" fill="none" stroke="#9a6428" stroke-width="2" opacity="0.75"/>
   </svg>`;
 }
 
-/** Split side up: a flat gold face with grain along the split and the rim showing below it. */
+/** Flat side up: the gold cut face along the top, grained along the split, the round underside below it. */
 function flatFace(p: GutiArt): string {
+  const { bottom } = STICK;
   return `<defs>
       <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${p.light}"/>
-        <stop offset="45%" stop-color="${p.mid}"/>
+        <stop offset="55%" stop-color="${p.mid}"/>
         <stop offset="100%" stop-color="${p.edge}"/>
+      </linearGradient>
+      <linearGradient id="under" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#8a5a30"/>
+        <stop offset="100%" stop-color="#26160a"/>
       </linearGradient>
       <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
         <stop offset="35%" stop-color="#ffffff" stop-opacity="0.45"/>
         <stop offset="50%" stop-color="#ffffff" stop-opacity="0"/>
       </linearGradient>
+      <clipPath id="body"><path d="${stickOutline(false)}"/></clipPath>
     </defs>
-    <rect x="10" y="16" width="236" height="96" rx="14" fill="${p.rim}"/>
-    <rect x="12" y="12" width="232" height="90" rx="12" fill="url(#face)" stroke="${p.outline}" stroke-width="3"/>
-    <path d="M30 36 C 84 30, 152 42, 226 34" fill="none" stroke="${p.edge}" stroke-width="3" opacity="0.5"/>
-    <path d="M30 57 C 98 63, 160 51, 226 59" fill="none" stroke="${p.edge}" stroke-width="3" opacity="0.45"/>
-    <path d="M30 80 C 92 74, 168 86, 226 78" fill="none" stroke="${p.edge}" stroke-width="3" opacity="0.4"/>
-    <rect x="12" y="12" width="232" height="90" rx="12" fill="url(#sheen)"/>`;
+    <path d="${stickOutline(false)}" fill="url(#face)"/>
+    <g clip-path="url(#body)">
+      <path d="M 52 36 C 104 30, 172 42, 240 34" fill="none" stroke="${p.edge}" stroke-width="3" opacity="0.5"/>
+      <path d="M 52 58 C 112 64, 170 52, 240 60" fill="none" stroke="${p.edge}" stroke-width="3" opacity="0.45"/>
+      <rect x="0" y="0" width="256" height="128" fill="url(#sheen)"/>
+      <rect x="0" y="${bottom - 24}" width="256" height="30" fill="url(#under)"/>
+      <path d="M 0 ${bottom - 24} L 256 ${bottom - 24}" stroke="${p.rim}" stroke-width="3"/>
+    </g>
+    <path d="${stickOutline(false)}" fill="none" stroke="${p.outline}" stroke-width="3"/>`;
 }
 
-/** Rounded back up: shaded across its width like a cylinder, with a long highlight. */
+/** Round side up: the lacquered back shaded like a cylinder, lit along its crown, the gold cut showing along its bottom edge. */
 function roundBack(p: GutiArt): string {
+  const { left, right, bottom, end } = STICK;
   return `<defs>
       <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${p.edge}"/>
-        <stop offset="20%" stop-color="${p.light}"/>
-        <stop offset="45%" stop-color="${p.mid}"/>
-        <stop offset="85%" stop-color="${p.edge}"/>
-        <stop offset="100%" stop-color="${p.rim}"/>
-      </linearGradient>
-      <linearGradient id="ends" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#000000" stop-opacity="0.5"/>
-        <stop offset="10%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="90%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.5"/>
+        <stop offset="0%" stop-color="#2a180b"/>
+        <stop offset="15%" stop-color="${p.light}"/>
+        <stop offset="38%" stop-color="#7a4d27"/>
+        <stop offset="78%" stop-color="${p.mid}"/>
+        <stop offset="100%" stop-color="${p.edge}"/>
       </linearGradient>
     </defs>
-    <rect x="12" y="12" width="232" height="96" rx="28" fill="url(#back)" stroke="${p.outline}" stroke-width="3"/>
-    <rect x="12" y="12" width="232" height="96" rx="28" fill="url(#ends)"/>
-    <rect x="44" y="26" width="168" height="14" rx="7" fill="#ffffff" opacity="0.35" filter="url(#glow)"/>
-    <rect x="60" y="29" width="136" height="6" rx="3" fill="#fff3dc" opacity="0.7"/>`;
+    <path d="${stickOutline(true)}" fill="url(#back)" stroke="${p.outline}" stroke-width="3"/>
+    <path d="M ${left + 34} 36 L ${right - 8} 36" stroke="#fff3dc" stroke-width="10" stroke-linecap="round" opacity="0.22" filter="url(#glow)"/>
+    <path d="M ${left + 44} 34 L ${right - 22} 34" stroke="#fff3dc" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+    <path d="M ${left - end + 4} ${bottom - 2} L ${right + end - 4} ${bottom - 2}" stroke="#e0a53a" stroke-width="3" opacity="0.9"/>`;
 }
 
 // ---------------------------------------------------------------------------

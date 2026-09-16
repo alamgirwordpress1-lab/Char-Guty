@@ -29,7 +29,7 @@ export interface GameConfig {
   readonly maxFlickPower: number;
   /**
    * Flick spread: how far a full-power flick can veer off its aim, either side, in sideways
-   * px per px travelled (0.18 is about 10 degrees); a gentler flick veers proportionally
+   * px per px travelled (0.3 is about 17 degrees); a gentler flick veers proportionally
    * less. Without it a steady aim never misses, and one turn could run all the way to the pot.
    */
   readonly flickSpread: number;
@@ -49,6 +49,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   dt: 1 / 60,
   restSpeed: 2,
   maxFlickPower: 700,
-  flickSpread: 0.18,
+  flickSpread: 0.3,
   maxSimSeconds: 5,
 };
