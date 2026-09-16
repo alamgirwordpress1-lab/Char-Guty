@@ -9,8 +9,9 @@ const POWER_MARGIN = 1.3;
 
 /**
  * A computer player's tokka, played the way a person would: take the two gutis lying
- * closest together and flick one at the other, hard enough to get there (v^2 = 2ad
- * under constant friction), with a random aim error so it can still miss.
+ * closest together and flick one at the other - the one lying flat side up, if only one
+ * does, since a round-up guti strays more - hard enough to get there (v^2 = 2ad under
+ * constant friction), with a random aim error so it can still miss.
  */
 export function chooseComputerTokka(gutis: readonly Guti[], rng: Rng): TokkaPayload {
   let best: { shooter: Guti; target: Guti; distance: number } | undefined;
@@ -23,7 +24,10 @@ export function chooseComputerTokka(gutis: readonly Guti[], rng: Rng): TokkaPayl
   }
   if (best === undefined) throw new Error("a tokka needs at least two gutis");
 
-  const { shooter, target, distance } = best;
+  const flatFirst = best.shooter.side === "R" && best.target.side === "F";
+  const { shooter, target, distance } = flatFirst
+    ? { shooter: best.target, target: best.shooter, distance: best.distance }
+    : best;
   const aim = Math.atan2(target.y - shooter.y, target.x - shooter.x);
   const angle = aim + (rng.next() * 2 - 1) * COMPUTER_AIM_ERROR;
   const power = Math.sqrt(2 * DEFAULT_CONFIG.friction * distance) * POWER_MARGIN;

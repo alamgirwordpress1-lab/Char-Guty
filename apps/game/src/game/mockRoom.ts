@@ -141,8 +141,9 @@ class MockRoom implements GameRoom {
   private mockTokka(message: unknown): void {
     if (this.state.phase !== "TOKKA") return;
     const { shooterId, flick: aimed } = tokkaPayloadSchema.parse(message);
-    if (!this.state.gutis.some((g) => g.id === shooterId)) return;
-    const flick = strayFlick(aimed, this.rng, DEFAULT_CONFIG);
+    const shooter = this.state.gutis.find((g) => g.id === shooterId);
+    if (shooter === undefined) return;
+    const flick = strayFlick(aimed, this.rng, DEFAULT_CONFIG, shooter.side);
     const sim = simulateTokka(this.state.gutis, shooterId, flick, {
       ...DEFAULT_CONFIG,
       recordFrames: true,

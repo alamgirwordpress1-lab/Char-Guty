@@ -266,10 +266,13 @@ export class GutiRoom extends Room<object, RoomMetadata, unknown, AuthenticatedP
     if (state === null || this.roomPhase !== "PLAYING") return;
     if (state.currentPlayer !== userId || state.phase !== "TOKKA") return;
     // A stale client can still send a guti that has already gone out.
-    if (!state.gutis.some((g) => g.id === tokka.shooterId)) return;
+    const shooter = state.gutis.find((g) => g.id === tokka.shooterId);
+    if (shooter === undefined) return;
 
-    // The flick as played: it strays from the aim that was sent, more the harder it is.
-    const played = { ...tokka, flick: strayFlick(tokka.flick, this.rng, DEFAULT_CONFIG) };
+    // The flick as played: it strays from the aim that was sent, more the harder it is, and
+    // more again when the guti lies round side up.
+    const flick = strayFlick(tokka.flick, this.rng, DEFAULT_CONFIG, shooter.side);
+    const played = { ...tokka, flick };
     // Re-run the (pure, deterministic) sim standalone purely to capture replay frames -
     // reduceTokka below performs the authoritative hit/position calculation itself.
     const { frames } = simulateTokka(state.gutis, played.shooterId, played.flick, {

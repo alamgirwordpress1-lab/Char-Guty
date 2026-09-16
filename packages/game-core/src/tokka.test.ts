@@ -88,25 +88,34 @@ describe("strayFlick", () => {
   const highest = { next: () => 1 };
 
   it("veers up to the spread either side at full power, and proportionally less when gentler", () => {
-    const left = strayFlick(straight(full), lowest, DEFAULT_CONFIG);
-    const right = strayFlick(straight(full), highest, DEFAULT_CONFIG);
+    const left = strayFlick(straight(full), lowest, DEFAULT_CONFIG, "F");
+    const right = strayFlick(straight(full), highest, DEFAULT_CONFIG, "F");
     expect(left.dy / left.dx).toBeCloseTo(-DEFAULT_CONFIG.flickSpread);
     expect(right.dy / right.dx).toBeCloseTo(DEFAULT_CONFIG.flickSpread);
-    const gentle = strayFlick(straight(full / 4), highest, DEFAULT_CONFIG);
+    const gentle = strayFlick(straight(full / 4), highest, DEFAULT_CONFIG, "F");
     expect(gentle.dy / gentle.dx).toBeCloseTo(DEFAULT_CONFIG.flickSpread / 4);
     expect(gentle.power).toBe(full / 4);
-    expect(strayFlick(straight(full), middle, DEFAULT_CONFIG)).toEqual(straight(full));
+    expect(strayFlick(straight(full), middle, DEFAULT_CONFIG, "F")).toEqual(straight(full));
+  });
+
+  it("veers further for a guti lying round side up", () => {
+    const flat = strayFlick(straight(full), highest, DEFAULT_CONFIG, "F");
+    const round = strayFlick(straight(full), highest, DEFAULT_CONFIG, "R");
+    expect(DEFAULT_CONFIG.roundFlickSpread).toBeGreaterThan(DEFAULT_CONFIG.flickSpread);
+    expect(flat.dy / flat.dx).toBeCloseTo(DEFAULT_CONFIG.flickSpread);
+    expect(round.dy / round.dx).toBeCloseTo(DEFAULT_CONFIG.roundFlickSpread);
+    expect(flickSpread(1e9, DEFAULT_CONFIG, "R")).toBeCloseTo(DEFAULT_CONFIG.roundFlickSpread);
   });
 
   it("caps the spread at full power and has none without power", () => {
-    expect(flickSpread(1e9, DEFAULT_CONFIG)).toBeCloseTo(DEFAULT_CONFIG.flickSpread);
-    expect(flickSpread(-50, DEFAULT_CONFIG)).toBe(0);
+    expect(flickSpread(1e9, DEFAULT_CONFIG, "F")).toBeCloseTo(DEFAULT_CONFIG.flickSpread);
+    expect(flickSpread(-50, DEFAULT_CONFIG, "R")).toBe(0);
   });
 
   it("can turn a hard flick straight at a far guti into a miss", () => {
     const far: Guti[] = [at(0, 20, 150), at(1, 380, 150), at(2, 200, 20), at(3, 200, 280)];
-    const onAim = strayFlick(straight(full), middle, DEFAULT_CONFIG);
-    const wide = strayFlick(straight(full), highest, DEFAULT_CONFIG);
+    const onAim = strayFlick(straight(full), middle, DEFAULT_CONFIG, "F");
+    const wide = strayFlick(straight(full), highest, DEFAULT_CONFIG, "F");
     expect(simulateTokka(far, 0, onAim, config).hitId).toBe(1);
     expect(simulateTokka(far, 0, wide, config).hitId).toBeNull();
   });

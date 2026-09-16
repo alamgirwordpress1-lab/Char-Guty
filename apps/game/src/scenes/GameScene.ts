@@ -720,9 +720,10 @@ export class GameScene extends Phaser.Scene {
     const uy = flick.dy / length;
     const strength = flick.power / DEFAULT_CONFIG.maxFlickPower;
     const color = strength > 0.66 ? 0xef4444 : strength > 0.33 ? 0xfb923c : COLOR.gold;
-    // The wedge the flick can stray into: the harder the pull, the wider it opens.
+    // The wedge the flick can stray into: the harder the pull, the wider it opens - and a
+    // guti lying round side up opens it wider still.
     const coneLength = ARROW_START_PX + ARROW_MAX_PX + 60;
-    const coneHalfWidth = coneLength * flickSpread(flick.power, DEFAULT_CONFIG);
+    const coneHalfWidth = coneLength * flickSpread(flick.power, DEFAULT_CONFIG, shooter.upSide);
     const coneX = shooter.x + ux * coneLength;
     const coneY = shooter.y + uy * coneLength;
     this.aimGfx

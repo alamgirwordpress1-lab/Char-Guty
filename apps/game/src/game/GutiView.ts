@@ -62,6 +62,11 @@ export class GutiView {
     );
   }
 
+  /** Which side of the guti faces up. */
+  get upSide(): Side {
+    return this.side;
+  }
+
   get x(): number {
     return this.container.x;
   }

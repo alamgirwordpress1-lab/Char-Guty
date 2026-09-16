@@ -8,20 +8,25 @@ export interface Flick {
   readonly power: number;
 }
 
-export type SpreadConfig = Pick<GameConfig, "flickSpread" | "maxFlickPower">;
+export type SpreadConfig = Pick<GameConfig, "flickSpread" | "roundFlickSpread" | "maxFlickPower">;
 
-/** How far a flick of this power can veer off its aim, either side: sideways px per px travelled. */
-export function flickSpread(power: number, config: SpreadConfig): number {
-  return (config.flickSpread * clampPower(power, config.maxFlickPower)) / config.maxFlickPower;
+/**
+ * How far a flick of this power can veer off its aim, either side: sideways px per px
+ * travelled. A guti lying round side up (R) veers more than one lying flat side up.
+ */
+export function flickSpread(power: number, config: SpreadConfig, side: Side): number {
+  const spread = side === "R" ? config.roundFlickSpread : config.flickSpread;
+  return (spread * clampPower(power, config.maxFlickPower)) / config.maxFlickPower;
 }
 
 /**
  * No hand is perfectly steady: turns the flick off its aim by a random amount within its
  * spread, so the harder a guti is flicked the less sure the shot. The server applies it to
  * every flick before simulating; like the sim, it avoids trig (it adds a sideways part).
+ * `side` is how the flicked guti lies.
  */
-export function strayFlick(flick: Flick, rng: Rng, config: SpreadConfig): Flick {
-  const veer = (rng.next() * 2 - 1) * flickSpread(flick.power, config);
+export function strayFlick(flick: Flick, rng: Rng, config: SpreadConfig, side: Side): Flick {
+  const veer = (rng.next() * 2 - 1) * flickSpread(flick.power, config, side);
   return { dx: flick.dx - flick.dy * veer, dy: flick.dy + flick.dx * veer, power: flick.power };
 }
 

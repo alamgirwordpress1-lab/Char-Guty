@@ -17,6 +17,18 @@ describe("chooseComputerTokka", () => {
     expect(stoppingDistance).toBeGreaterThan(50);
   });
 
+  it("flicks the flat-up guti of the closest pair, since a round-up one strays more", () => {
+    const gutis: Guti[] = [
+      { id: 0, side: "R", x: 100, y: 100 },
+      { id: 1, side: "F", x: 160, y: 100 },
+      { id: 2, side: "F", x: 390, y: 20 },
+      { id: 3, side: "R", x: 20, y: 290 },
+    ];
+    const { shooterId, flick } = chooseComputerTokka(gutis, deadOn);
+    expect(shooterId).toBe(1);
+    expect(flick.dx).toBeCloseTo(-1);
+  });
+
   it("can stray up to the aim error either way, so it can miss", () => {
     const gutis = [at(0, 0, 0), at(1, 100, 0), at(2, 300, 250), at(3, 0, 250)];
     const low = chooseComputerTokka(gutis, { next: () => 0 }).flick;

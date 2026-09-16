@@ -28,11 +28,17 @@ export interface GameConfig {
    */
   readonly maxFlickPower: number;
   /**
-   * Flick spread: how far a full-power flick can veer off its aim, either side, in sideways
-   * px per px travelled (0.3 is about 17 degrees); a gentler flick veers proportionally
-   * less. Without it a steady aim never misses, and one turn could run all the way to the pot.
+   * Flick spread: how far a full-power flick of a guti lying flat side up can veer off its
+   * aim, either side, in sideways px per px travelled (0.18 is about 10 degrees); a gentler
+   * flick veers proportionally less. Without it a steady aim never misses, and one turn
+   * could run all the way to the pot.
    */
   readonly flickSpread: number;
+  /**
+   * The same for a guti lying round side up: rocking on its uneven back it is harder to send
+   * straight, above all over a distance (0.3 is about 17 degrees).
+   */
+  readonly roundFlickSpread: number;
   /** Sim tuning: hard cap on simulated time so a tokka always terminates. */
   readonly maxSimSeconds: number;
 }
@@ -49,6 +55,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   dt: 1 / 60,
   restSpeed: 2,
   maxFlickPower: 700,
-  flickSpread: 0.3,
+  flickSpread: 0.18,
+  roundFlickSpread: 0.3,
   maxSimSeconds: 5,
 };
