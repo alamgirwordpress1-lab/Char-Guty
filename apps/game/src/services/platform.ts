@@ -283,6 +283,50 @@ export function roomLink(roomCode: string): string {
   return url.toString();
 }
 
+/** What came of offering something to the device's share sheet. */
+export type ShareOutcome = "shared" | "dismissed" | "unavailable";
+
+/**
+ * Offers text to the device's own share sheet, which lists every app that takes it - imo,
+ * Instagram, Viber and the rest. The Android app reaches it through Capacitor, a browser
+ * through the Web Share API; one without the API, like the browser inside Facebook, gets
+ * "unavailable".
+ */
+export async function shareToApps(title: string, text: string): Promise<ShareOutcome> {
+  if (import.meta.env.MODE === "android") {
+    try {
+      const { Share } = await import("@capacitor/share");
+      await Share.share({ title, text, dialogTitle: "Invite friends" });
+      return "shared";
+    } catch (err) {
+      return /cancel|in progress/i.test(String(err)) ? "dismissed" : "unavailable";
+    }
+  }
+  if (!canShareToApps()) return "unavailable";
+  try {
+    await navigator.share({ title, text });
+    return "shared";
+  } catch (err) {
+    // Closed without picking an app, or tapped again while the sheet was still up.
+    const name = (err as { name?: unknown } | null)?.name;
+    return name === "AbortError" || name === "InvalidStateError" ? "dismissed" : "unavailable";
+  }
+}
+
+/** Whether there is a device share sheet for shareToApps to open. */
+export function canShareToApps(): boolean {
+  return import.meta.env.MODE === "android" || typeof navigator.share === "function";
+}
+
+/** A phone or a tablet, going by the browser - an iPad passes for a Mac, but a touch screen gives it away. */
+export function onPhone(): boolean {
+  const agent = navigator.userAgent;
+  return (
+    /Android|iPhone|iPad|iPod/i.test(agent) ||
+    (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)
+  );
+}
+
 /** Loads and plays one ad; rejects on no fill, a video closed early, or too-frequent loads. */
 export async function showInstantAd(
   kind: "rewarded" | "interstitial",

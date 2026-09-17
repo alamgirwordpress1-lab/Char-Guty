@@ -40,6 +40,9 @@ importers:
       '@capacitor/core':
         specifier: ^8.5.2
         version: 8.5.2
+      '@capacitor/share':
+        specifier: ^8.0.2
+        version: 8.0.2(@capacitor/core@8.5.2)
       '@char-guty/game-core':
         specifier: workspace:*
         version: link:../../packages/game-core
@@ -173,6 +176,11 @@ packages:
 
   '@capacitor/core@8.5.2':
     resolution: {integrity: sha512-agnQbGdhGw/KZFuLf7H9SY2o+oE7upkr/WPQsYaokXP6f9chaE8iVmbKkfN6SVl4w3pmz7oZ3Ur1hbkmy1hx+w==}
+
+  '@capacitor/share@8.0.2':
+    resolution: {integrity: sha512-L2M4iBLTf/IaMmg+ruuriAoJyBzu1EgayWhgC5cX1HJGkA665g2ROz8c2Z5lfkT/XSLbAuG3bb7VlW3eGgUCNQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@colyseus/auth@0.16.6':
     resolution: {integrity: sha512-gfxnTOhfmd1O2OnCOw2S8hFyGNWib2MJzD3EIU0Q43eby2VXoKtGpE3llu2cqgmgJ1ShV79jk2RnPt5LEo89hw==}
@@ -3690,6 +3698,10 @@ snapshots:
   '@capacitor/core@8.5.2':
     dependencies:
       tslib: 2.8.1
+
+  '@capacitor/share@8.0.2(@capacitor/core@8.5.2)':
+    dependencies:
+      '@capacitor/core': 8.5.2
 
   '@colyseus/auth@0.16.6(@colyseus/core@0.16.26(@colyseus/schema@3.0.76)(@pm2/io@6.1.0))(express@4.22.2)':
     dependencies:

@@ -1,139 +1,249 @@
 import type Phaser from "phaser";
-import { ensureShareIcons } from "./shareIcons.js";
+import { LANDSCAPE } from "../config.js";
+import { canShareToApps, onPhone, shareToApps } from "../services/platform.js";
 import { COLOR, TEXT } from "./theme.js";
-import { dialog, glossyButton, notify } from "./widgets.js";
-import type { ButtonColor } from "./widgets.js";
+import { dialog, glossyButton, notify, pressable } from "./widgets.js";
+import type { Dialog } from "./widgets.js";
 
-interface ShareTarget {
-  readonly label: string;
-  readonly icon: string;
-  readonly color: ButtonColor;
-  readonly share: () => void;
+interface ShareApp {
+  readonly name: string;
+  /** Texture key of the app's badge. */
+  readonly badge: string;
+  readonly open: () => void;
 }
 
-const DIALOG_WIDTH = 640;
-const BUTTON_WIDTH = 270;
-const BUTTON_HEIGHT = 92;
-const ROW_STEP = 112;
+/** Portrait sets the apps out three to a row; landscape has room for them all in one. */
+const SHEET = LANDSCAPE
+  ? { width: 880, perRow: 6, column: 130, inner: 600 }
+  : { width: 640, perRow: 3, column: 170, inner: 560 };
+/** Where each part sits, measured down from the top of the sheet. */
+const Y = { subtitle: 122, messenger: 218, firstRow: 352, rowStep: 150, wellBelowRows: 188 };
+const WELL_HEIGHT = 124;
+const BOTTOM_MARGIN = 50;
+const BADGE_SIZE = 96;
+const COPIED_MS = 1600;
+
+/** The invite as it lands in a chat: what it is, the link that opens the room, and its code. */
+export function inviteMessage(code: string, link: string): string {
+  return `🎮 Let's play Char Guty together!\nJoin my room: ${link}\nRoom code: ${code}`;
+}
 
 /**
- * The room invite, sent straight to a chat app or a social network, or copied. On a phone
- * the apps open through their own link schemes, which leave this page and its room where
- * they are - an in-app browser would swap the page out for a web address. A computer gets
- * each network's web share page in a new tab.
+ * The Invite Friends sheet. Messenger comes first and biggest, being where most players send
+ * their invites; then every other app with a way in, the device's own share sheet for all the
+ * rest (imo, Instagram and so on), and the room code with its link to copy.
  */
-export function openShareDialog(scene: Phaser.Scene, code: string, link: string): void {
-  ensureShareIcons(scene);
-  const text = `Join my Char Guty room! Code: ${code}`;
-  const message = encodeURIComponent(`${text} ${link}`);
-  const url = encodeURIComponent(link);
-  const words = encodeURIComponent(text);
-  const onPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+export function shareInvite(scene: Phaser.Scene, code: string, link: string): void {
+  const message = inviteMessage(code, link);
+  const { messenger, others } = shareApps(scene, code, link, message);
+  const rows = Math.ceil(others.length / SHEET.perRow);
+  const wellY = Y.firstRow + (rows - 1) * Y.rowStep + Y.wellBelowRows;
+  const height = wellY + WELL_HEIGHT / 2 + BOTTOM_MARGIN;
+  const top = -height / 2;
 
-  const targets: ShareTarget[] = [
+  const sheet = dialog(scene, "Invite Friends", SHEET.width, height);
+  const subtitle = scene.add
+    .text(0, top + Y.subtitle, "Send your friends the link to this room", {
+      ...TEXT.body,
+      color: COLOR.muted,
+    })
+    .setOrigin(0.5);
+  const messengerButton = glossyButton(
+    scene,
+    0,
+    top + Y.messenger,
+    "SEND IN MESSENGER",
+    messenger.open,
+    { width: SHEET.inner, height: 92, color: "blue", icon: messenger.badge, fontSize: 30 },
+  );
+  sheet.add(subtitle, messengerButton.container);
+
+  others.forEach((app, i) => {
+    const row = Math.floor(i / SHEET.perRow);
+    const inRow = Math.min(SHEET.perRow, others.length - row * SHEET.perRow);
+    const x = ((i % SHEET.perRow) - (inRow - 1) / 2) * SHEET.column;
+    const badge = scene.add.image(0, 0, app.badge).setDisplaySize(BADGE_SIZE, BADGE_SIZE);
+    const name = scene.add
+      .text(0, BADGE_SIZE / 2 + 24, app.name, { ...TEXT.small, color: COLOR.white })
+      .setOrigin(0.5);
+    const item = scene.add
+      .container(x, top + Y.firstRow + row * Y.rowStep, [badge, name])
+      .setSize(SHEET.column, BADGE_SIZE + 64);
+    pressable(item, app.open);
+    sheet.add(item);
+  });
+
+  addCodeWell(scene, sheet, top + wellY, code, link);
+}
+
+/** The room code, for a friend who would rather type it in, and the link to paste anywhere. */
+function addCodeWell(
+  scene: Phaser.Scene,
+  sheet: Dialog,
+  y: number,
+  code: string,
+  link: string,
+): void {
+  const half = SHEET.inner / 2;
+  const well = scene.add.graphics();
+  well
+    .fillStyle(COLOR.deepNavy, 0.5)
+    .fillRoundedRect(-half, y - WELL_HEIGHT / 2, SHEET.inner, WELL_HEIGHT, 26);
+  well
+    .lineStyle(2, 0xffffff, 0.12)
+    .strokeRoundedRect(-half, y - WELL_HEIGHT / 2, SHEET.inner, WELL_HEIGHT, 26);
+  const label = scene.add.text(-half + 32, y - 26, "ROOM CODE", TEXT.small).setOrigin(0, 0.5);
+  const codeText = scene.add
+    .text(-half + 32, y + 18, code, { ...TEXT.title, fontSize: "46px", color: COLOR.goldText })
+    .setOrigin(0, 0.5);
+  const copy = glossyButton(
+    scene,
+    half - 130,
+    y,
+    "COPY LINK",
+    () => {
+      void copyInvite(scene, code, link).then((copied) => {
+        if (!copied || !copy.container.active) return;
+        copy.setLabel("COPIED");
+        scene.time.delayedCall(COPIED_MS, () => {
+          if (copy.container.active) copy.setLabel("COPY LINK");
+        });
+      });
+    },
+    { width: 220, height: 84, color: "orange", fontSize: 24 },
+  );
+  sheet.add(well, label, codeText, copy.container);
+}
+
+/**
+ * Messenger, and the other apps in the order they go on the sheet. A phone opens each app
+ * through its link scheme, which leaves this page and its room where they are; a computer
+ * gets each one's web share page.
+ */
+function shareApps(
+  scene: Phaser.Scene,
+  code: string,
+  link: string,
+  message: string,
+): { messenger: ShareApp; others: ShareApp[] } {
+  const phone = onPhone();
+  const text = encodeURIComponent(message);
+  const url = encodeURIComponent(link);
+  // Telegram and X set the link apart from the words themselves.
+  const words = encodeURIComponent(`Let's play Char Guty together! Room code: ${code}`);
+
+  const messenger: ShareApp = {
+    name: "Messenger",
+    badge: "share-messenger",
+    // Its send screen, the chat picker, only exists in the phone app. On a computer the invite
+    // is copied, and messenger.com opens for it to be pasted into a chat.
+    open: phone
+      ? () => openApp(scene, "Messenger", `fb-messenger://share/?link=${url}`)
+      : () => void copyAndOpen(scene, "Messenger", "https://www.messenger.com/", message, code),
+  };
+
+  const others: ShareApp[] = [
     {
-      label: "WHATSAPP",
-      icon: "share-whatsapp",
-      color: "green",
-      share: () =>
+      name: "Facebook",
+      badge: "share-facebook",
+      open: () => openApp(scene, "Facebook", `https://www.facebook.com/sharer/sharer.php?u=${url}`),
+    },
+    {
+      name: "WhatsApp",
+      badge: "share-whatsapp",
+      open: () =>
         openApp(
           scene,
           "WhatsApp",
-          onPhone ? `whatsapp://send?text=${message}` : `https://wa.me/?text=${message}`,
+          phone ? `whatsapp://send?text=${text}` : `https://wa.me/?text=${text}`,
         ),
     },
     {
-      label: "FACEBOOK",
-      icon: "share-facebook",
-      color: "blue",
-      share: () =>
-        openApp(scene, "Facebook", `https://www.facebook.com/sharer/sharer.php?u=${url}`),
-    },
-  ];
-  // Messenger's share screen only exists in its phone app.
-  if (onPhone) {
-    targets.push({
-      label: "MESSENGER",
-      icon: "share-messenger",
-      color: "blue",
-      share: () => openApp(scene, "Messenger", `fb-messenger://share/?link=${url}`),
-    });
-  }
-  targets.push(
-    {
-      label: "TELEGRAM",
-      icon: "share-telegram",
-      color: "blue",
-      share: () =>
+      name: "Telegram",
+      badge: "share-telegram",
+      open: () =>
         openApp(
           scene,
           "Telegram",
-          onPhone
+          phone
             ? `tg://msg_url?url=${url}&text=${words}`
             : `https://t.me/share/url?url=${url}&text=${words}`,
         ),
     },
     {
-      label: "X (TWITTER)",
-      icon: "share-x",
-      color: "gray",
-      share: () => openApp(scene, "X", `https://twitter.com/intent/tweet?text=${words}&url=${url}`),
+      name: "X",
+      badge: "share-x",
+      open: () => openApp(scene, "X", `https://twitter.com/intent/tweet?text=${words}&url=${url}`),
     },
-    {
-      label: "COPY LINK",
-      icon: "share-link",
-      color: "orange",
-      share: () => void copyInvite(scene, code, link),
-    },
-  );
-  // Where there is a system share sheet it reaches everything else - SMS, email, Instagram.
-  if (targets.length % 2 === 1 && typeof navigator.share === "function") {
-    targets.push({
-      label: "MORE",
-      icon: "icon-share",
-      color: "gray",
-      share: () => void shareSheet(text, link),
+    phone
+      ? {
+          name: "SMS",
+          badge: "share-sms",
+          open: () => openApp(scene, "SMS", `sms:?&body=${text}`),
+        }
+      : {
+          name: "Email",
+          badge: "share-email",
+          open: () =>
+            openApp(
+              scene,
+              "Email",
+              `mailto:?subject=${encodeURIComponent("Join my Char Guty room")}&body=${text}`,
+            ),
+        },
+  ];
+  // The device's own share sheet reaches every app not listed here.
+  if (canShareToApps()) {
+    others.push({
+      name: "More",
+      badge: "share-more",
+      open: () =>
+        void shareToApps("Char Guty", message).then((outcome) => {
+          if (outcome === "unavailable" && scene.sys.isActive()) void copyInvite(scene, code, link);
+        }),
     });
   }
-
-  const rows = Math.ceil(targets.length / 2);
-  const height = 250 + rows * ROW_STEP;
-  const top = -height / 2;
-  const box = dialog(scene, "Invite Friends", DIALOG_WIDTH, height);
-  box.add(
-    scene.add.text(0, top + 128, "Send your friends the room link", TEXT.body).setOrigin(0.5),
-  );
-  targets.forEach((target, i) => {
-    const column = i % 2;
-    const alone = column === 0 && i === targets.length - 1;
-    const x = alone ? 0 : column === 0 ? -145 : 145;
-    const y = top + 220 + Math.floor(i / 2) * ROW_STEP;
-    const button = glossyButton(scene, x, y, target.label, target.share, {
-      width: BUTTON_WIDTH,
-      height: BUTTON_HEIGHT,
-      color: target.color,
-      icon: target.icon,
-      fontSize: 24,
-    });
-    box.add(button.container);
-  });
-  box.add(
-    scene.add
-      .text(0, height / 2 - 54, `Room code: ${code}`, { ...TEXT.heading, color: COLOR.goldText })
-      .setOrigin(0.5),
-  );
+  return { messenger, others };
 }
 
-/** Copies the invite link, and says whether that worked - falling back to the room code. */
-export async function copyInvite(scene: Phaser.Scene, code: string, link: string): Promise<void> {
+/**
+ * Copies the invite link, and says whether that worked - falling back to the room code.
+ * Resolves to whether the link was copied.
+ */
+export async function copyInvite(
+  scene: Phaser.Scene,
+  code: string,
+  link: string,
+): Promise<boolean> {
   const copied = await copyText(link);
-  if (!scene.sys.isActive()) return;
+  if (!scene.sys.isActive()) return copied;
   notify(
     scene,
     copied
       ? "Invite link copied - paste it in your chat"
       : `Couldn't copy the link - send your friend the room code: ${code}`,
   );
+  return copied;
+}
+
+/** For an app with no share page: the invite is copied, then the app opens to paste it in. */
+async function copyAndOpen(
+  scene: Phaser.Scene,
+  name: string,
+  url: string,
+  message: string,
+  code: string,
+): Promise<void> {
+  const copied = await copyText(message);
+  if (scene.sys.isActive()) {
+    notify(
+      scene,
+      copied
+        ? `Invite copied - paste it in a ${name} chat`
+        : `Couldn't copy the invite - send your friend the room code: ${code}`,
+    );
+  }
+  window.open(url, "_blank", "noopener");
 }
 
 /**
@@ -163,14 +273,6 @@ function openApp(scene: Phaser.Scene, name: string, url: string): void {
       notify(scene, `${name} didn't open - try another way to share`);
     }
   }, checkAfterMs);
-}
-
-async function shareSheet(text: string, link: string): Promise<void> {
-  try {
-    await navigator.share({ title: "Char Guty", text, url: link });
-  } catch {
-    // Closed by the player, or refused: the dialog is still there.
-  }
 }
 
 /**

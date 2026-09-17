@@ -21,7 +21,7 @@ import {
 } from "../services/platform.js";
 import type { RoomStateMsg } from "../services/roomState.js";
 import { getSession } from "../state/session.js";
-import { copyInvite, openShareDialog } from "../ui/shareDialog.js";
+import { copyInvite, shareInvite } from "../ui/shareDialog.js";
 import { COLOR, TEXT } from "../ui/theme.js";
 import { avatar, glossyButton, menuBackground, notify, panel, shortName } from "../ui/widgets.js";
 import type { GameButton } from "../ui/widgets.js";
@@ -323,7 +323,7 @@ export class MatchmakingScene extends Phaser.Scene {
       await copyInvite(this, code, link);
       return;
     }
-    openShareDialog(this, code, link);
+    shareInvite(this, code, link);
   }
 
   /** The waiting screen itself - seats and room code - as the picture on the invite. */

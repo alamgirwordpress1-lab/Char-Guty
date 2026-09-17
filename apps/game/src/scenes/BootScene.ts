@@ -34,6 +34,9 @@ const ICONS = [
   "crown",
 ];
 
+/** App badges on the invite sheet (scripts/generate-share-icons.ts). */
+const SHARE_APPS = ["messenger", "facebook", "whatsapp", "telegram", "x", "sms", "email", "more"];
+
 const IMAGES = [
   "guti-flat",
   "guti-round",
@@ -49,6 +52,7 @@ const IMAGES = [
   "avatar-ring",
   "burst",
   ...ICONS.map((icon) => `icon-${icon}`),
+  ...SHARE_APPS.map((app) => `share-${app}`),
 ];
 
 const SOUNDS: readonly (readonly [key: string, file: string])[] = [
