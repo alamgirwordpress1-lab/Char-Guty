@@ -18,6 +18,8 @@ android {
         // the run number in; a local build just gets 1.
         versionCode Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
         versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
+        // AdMob reads this from the manifest before any ad is requested.
+        manifestPlaceholders = [admobAppId: System.getenv("ADMOB_APP_ID") ?: "ca-app-pub-3940256099942544~3347511713"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

@@ -1,4 +1,9 @@
-import { claimCrazyGamesAdReward, claimInstantAdReward, claimMockAdReward } from "./net.js";
+import {
+  claimCrazyGamesAdReward,
+  claimInstantAdReward,
+  claimMockAdReward,
+  fetchWallet,
+} from "./net.js";
 import type { AdRewardResult } from "./net.js";
 import {
   isCrazyGamesBuild,
@@ -79,6 +84,89 @@ class CrazyGamesAdsService implements AdsService {
   }
 }
 
+/**
+ * Android: AdMob rewarded video through Capacitor. Google tells the server itself that the
+ * video was watched (server-side verification), so the coins arrive through
+ * /ads/reward-callback and the client only reads the wallet back afterwards. Until the ad
+ * unit IDs are set - which AdMob only grants once the app is live on Play - no video is
+ * offered, because a Free Coins button with nothing behind it reads as broken.
+ */
+class AdMobAdsService implements AdsService {
+  private readonly rewardedId: string = import.meta.env.VITE_ADMOB_REWARDED_ID ?? "";
+  private readonly interstitialId: string = import.meta.env.VITE_ADMOB_INTERSTITIAL_ID ?? "";
+  readonly offersRewarded = this.rewardedId !== "";
+  private sdk: Promise<typeof import("@capacitor-community/admob")> | null = null;
+
+  async showRewarded(): Promise<RewardedAdResult> {
+    if (this.rewardedId === "") return "failed";
+    const { userId, coins } = getSession();
+    try {
+      const { AdMob } = await this.ready();
+      await AdMob.prepareRewardVideoAd({ adId: this.rewardedId, ssv: { userId } });
+      await AdMob.showRewardVideoAd();
+    } catch (err) {
+      // Closing the video early rejects here, and so does one that never loaded.
+      return /dismiss|cancel|clos/i.test(String(err)) ? "closed" : "failed";
+    }
+    return waitForServerReward(coins);
+  }
+
+  async showInterstitial(): Promise<void> {
+    if (this.interstitialId === "") return;
+    try {
+      const { AdMob } = await this.ready();
+      await AdMob.prepareInterstitial({ adId: this.interstitialId });
+      await AdMob.showInterstitial();
+    } catch {
+      // An ad that doesn't turn up is not worth interrupting the game for.
+    }
+  }
+
+  /** Starts the SDK once, and asks for consent before the first ad is requested. */
+  private ready(): Promise<typeof import("@capacitor-community/admob")> {
+    this.sdk ??= (async () => {
+      const admob = await import("@capacitor-community/admob");
+      await admob.AdMob.initialize();
+      // Google's EU user consent policy: players in the EEA and the UK have to be asked
+      // before a personalised ad is requested. Elsewhere the form never comes up.
+      try {
+        const consent = await admob.AdMob.requestConsentInfo();
+        if (
+          consent.status === admob.AdmobConsentStatus.REQUIRED &&
+          consent.isConsentFormAvailable === true
+        ) {
+          await admob.AdMob.showConsentForm();
+        }
+      } catch {
+        // No form configured in AdMob yet: the SDK then serves non-personalised ads.
+      }
+      return admob;
+    })();
+    return this.sdk;
+  }
+}
+
+/**
+ * The reward AdMob pays through the server: the coins land by callback, so the wallet is
+ * read back until they show up.
+ */
+async function waitForServerReward(before: number): Promise<RewardedAdResult> {
+  const session = getSession();
+  for (let tries = 0; tries < 6; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    try {
+      const wallet = await fetchWallet(session.token);
+      if (wallet.coins > before) {
+        updateBalance(wallet.coins, wallet.winPoints);
+        return "rewarded";
+      }
+    } catch {
+      // The callback may still be on its way; look again.
+    }
+  }
+  return "failed";
+}
+
 /** Claims a watched video's coins from the server and shows the new balance. */
 async function creditReward(
   claim: (token: string) => Promise<AdRewardResult>,
@@ -100,4 +188,6 @@ export const ads: AdsService = isFacebookInstant
   ? new InstantGamesAdsService()
   : isCrazyGamesBuild
     ? new CrazyGamesAdsService()
-    : new WebAdsService();
+    : import.meta.env.MODE === "android"
+      ? new AdMobAdsService()
+      : new WebAdsService();

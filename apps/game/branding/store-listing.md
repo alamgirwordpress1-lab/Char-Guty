@@ -126,6 +126,35 @@ The same questionnaire serves Play, Galaxy Store and Facebook.
    the answers above, set the target audience to 13 and over (online play with strangers,
    coin stakes), and give the account deletion URL.
 
+## Ads (AdMob)
+
+AdMob itself is free, but Google only approves an app for full ad serving once it is
+**published in a supported store** and linked in AdMob (support.google.com/admob/answer/10564477:
+the app must be published, listed in a supported store, and linked). Until then it gets
+limited serving and earns nothing, so Play comes first and ads follow. Since January 2025
+`app-ads.txt` is checked as part of that store-listing review, so charguty.online must
+answer `/app-ads.txt` with the publisher line and HTTP 200.
+
+| Step                                                                                                                                  | Who    |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Create the AdMob account at admob.google.com (free; an AdSense account comes with it)                                                 | owner  |
+| Add app -> Android -> `com.charguty.game`, then a **Rewarded** ad unit (an Interstitial is optional)                                  | owner  |
+| Hand over the App ID (`ca-app-pub-…~…`), the ad unit IDs and the publisher ID (`pub-…`)                                               | owner  |
+| `ADMOB_APP_ID` for the Android build, `VITE_ADMOB_REWARDED_ID` / `VITE_ADMOB_INTERSTITIAL_ID` in `.env.android`, `public/app-ads.txt` | Claude |
+| Link the Play listing in AdMob, then wait 2-3 days for the review                                                                     | owner  |
+| Payment: address PIN by post, tax form, bank details; Google pays from $100                                                           | owner  |
+
+What the build already does (ads.ts `AdMobAdsService`): a rewarded video with server-side
+verification - the `ssv.userId` is the player's id, so Google's callback reaches
+`/ads/reward-callback` and the server credits the coins, which the client then reads back
+from the wallet; the UMP consent form before the first ad, for players in the EEA and the
+UK; Free Coins hidden while the ad unit IDs are empty; and the app ID in the manifest,
+defaulting to Google's sample ID so debug builds only ever see test ads.
+
+Policy points already met: the rewarded video is optional and says what it pays before it
+plays, the privacy policy is linked in Settings, and nothing is asked of the player during
+onboarding or account deletion.
+
 ## Facebook Instant Games
 
 What the build already does for review: players go straight in as a guest (no sign-in

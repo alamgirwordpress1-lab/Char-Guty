@@ -25,6 +25,12 @@
 
         </activity>
 
+        <!-- AdMob needs the app ID at startup. The default is Google's own sample ID, which
+             only serves test ads; a release build passes the real one as ADMOB_APP_ID. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobAppId}" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

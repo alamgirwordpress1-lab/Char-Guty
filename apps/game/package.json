@@ -15,6 +15,7 @@
     "generate-assets": "tsx scripts/generate-assets.ts"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^8.1.0",
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/share": "^8.0.2",
