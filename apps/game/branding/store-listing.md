@@ -6,17 +6,17 @@ time); the other two are free. Answers marked **decide** are the owner's to conf
 
 ## Identity
 
-| Field | Value |
-| --- | --- |
-| App name | Char Guty |
-| Package / App ID | `com.charguty.game` |
-| Category | Games -> Board |
-| Contains ads | **No, for now** - the Android app has no ad network yet, so Free Coins is hidden there. Switch to Yes once one is added |
-| In-app purchases | No - none, ever |
-| Website | https://charguty.online/ |
-| Privacy policy | https://http--char-guty-server--gf6pxjtyq6lt.code.run/privacy |
-| Account deletion URL | https://http--char-guty-server--gf6pxjtyq6lt.code.run/delete-account (in the game: Profile -> Delete account) |
-| Support email | the owner's own address (stores show it publicly) |
+| Field                | Value                                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| App name             | Char Guty                                                                                                               |
+| Package / App ID     | `com.charguty.game`                                                                                                     |
+| Category             | Games -> Board                                                                                                          |
+| Contains ads         | **No, for now** - the Android app has no ad network yet, so Free Coins is hidden there. Switch to Yes once one is added |
+| In-app purchases     | No - none, ever                                                                                                         |
+| Website              | https://charguty.online/                                                                                                |
+| Privacy policy       | https://http--char-guty-server--gf6pxjtyq6lt.code.run/privacy                                                           |
+| Account deletion URL | https://http--char-guty-server--gf6pxjtyq6lt.code.run/delete-account (in the game: Profile -> Delete account)           |
+| Support email        | the owner's own address (stores show it publicly)                                                                       |
 
 ## Short description (max 80 characters)
 
@@ -62,12 +62,12 @@ Two to four players, one quick round at a time.
 
 ## Art
 
-| Asset | File | Size |
-| --- | --- | --- |
-| App icon | `branding/app-icon.png` | 1024x1024 |
-| Feature graphic (Play) | `branding/feature-graphic.png` | 1024x500 |
-| Phone screenshots | `branding/screenshots/*.jpg` | 720x1280, at least 2 |
-| Link preview (web) | `public/share-card.png` | 1200x630 |
+| Asset                  | File                           | Size                 |
+| ---------------------- | ------------------------------ | -------------------- |
+| App icon               | `branding/app-icon.png`        | 1024x1024            |
+| Feature graphic (Play) | `branding/feature-graphic.png` | 1024x500             |
+| Phone screenshots      | `branding/screenshots/*.jpg`   | 720x1280, at least 2 |
+| Link preview (web)     | `public/share-card.png`        | 1200x630             |
 
 Regenerate the art with `pnpm -F @char-guty/game exec tsx scripts/generate-icon.ts`. The
 screenshots come from the live game: open it with `?snap` (which exposes the Phaser
@@ -80,37 +80,44 @@ own snapshot works.
 
 The same questionnaire serves Play, Galaxy Store and Facebook.
 
-| Question | Answer |
-| --- | --- |
-| Violence, blood, horror | None |
-| Sexual content, nudity | None |
-| Profanity, crude humour | None |
-| Alcohol, tobacco, drugs | None |
-| Real-money gambling | **No** - nothing can be bought, won or cashed out for money |
-| Simulated gambling | **decide** - players stake in-game coins on a match. The coins cannot be purchased and have no cash value, but the stake is a wager, so answering yes is the safe reading |
-| User interaction | Yes - players are matched with strangers online |
-| Shares user location | No |
-| Unrestricted internet access | No |
-| Digital purchases | No |
+| Question                     | Answer                                                                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Violence, blood, horror      | None                                                                                                                                                                      |
+| Sexual content, nudity       | None                                                                                                                                                                      |
+| Profanity, crude humour      | None                                                                                                                                                                      |
+| Alcohol, tobacco, drugs      | None                                                                                                                                                                      |
+| Real-money gambling          | **No** - nothing can be bought, won or cashed out for money                                                                                                               |
+| Simulated gambling           | **decide** - players stake in-game coins on a match. The coins cannot be purchased and have no cash value, but the stake is a wager, so answering yes is the safe reading |
+| User interaction             | Yes - players are matched with strangers online                                                                                                                           |
+| Shares user location         | No                                                                                                                                                                        |
+| Unrestricted internet access | No                                                                                                                                                                        |
+| Digital purchases            | No                                                                                                                                                                        |
 
 ## Data safety form (Play)
 
-| Question | Answer |
-| --- | --- |
-| Does the app collect or share user data? | Collects, does not share |
-| Personal info | Only the nickname the player types (no real name, email, phone) |
-| App activity | In-game actions: matches played, results, coins, win points |
-| Device or other IDs | A player id the game creates; no advertising id used by the game itself |
-| Location, contacts, photos, files, messages | None |
-| Is data encrypted in transit? | Yes - HTTPS and WSS |
-| Can users request deletion? | Yes - in the game (Profile -> Delete account), or through the account deletion URL above |
-| Is data collection optional? | No - an account is needed to play online |
-| Data handled by the ad network | None in the Android app yet (it has no ad network). On Facebook, Meta Audience Network handles ad data under Meta's own terms |
+| Question                                    | Answer                                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Does the app collect or share user data?    | Collects, does not share                                                                                                      |
+| Personal info                               | Only the nickname the player types (no real name, email, phone)                                                               |
+| App activity                                | In-game actions: matches played, results, coins, win points                                                                   |
+| Device or other IDs                         | A player id the game creates; no advertising id used by the game itself                                                       |
+| Location, contacts, photos, files, messages | None                                                                                                                          |
+| Is data encrypted in transit?               | Yes - HTTPS and WSS                                                                                                           |
+| Can users request deletion?                 | Yes - in the game (Profile -> Delete account), or through the account deletion URL above                                      |
+| Is data collection optional?                | No - an account is needed to play online                                                                                      |
+| Data handled by the ad network              | None in the Android app yet (it has no ad network). On Facebook, Meta Audience Network handles ad data under Meta's own terms |
 
 ## Release checklist
 
-1. Build a signed AAB (Play) or APK (Galaxy Store, Amazon). Needs an upload keystore -
-   not created yet, and the password is the owner's to set.
+1. Make the upload keystore once, on the owner's own machine (no JDK needed):
+   `pnpm -F @char-guty/game exec tsx scripts/make-upload-keystore.ts`. It asks for a
+   password twice - typed blind, never stored here - and writes `upload.p12` plus the same
+   file as base64 to `Desktop\char-guty-keystore`. Never commit either file: losing the
+   keystore or its password means the app can never be updated under com.charguty.game.
+   Then add three repository secrets (GitHub -> Settings -> Secrets and variables ->
+   Actions): `ANDROID_KEYSTORE_BASE64` (the whole base64 file), `ANDROID_KEYSTORE_PASSWORD`
+   and `ANDROID_KEY_ALIAS` = `charguty`. The "Android release" workflow then builds the
+   signed `.aab` for Play and `.apk` for the other stores, and refuses a debug-signed build.
 2. `targetSdkVersion` is already 36, which is what Play requires from 31 Aug 2026.
 3. Play only: a personal developer account opened after 13 Nov 2023 must run a closed
    test with 12 testers opted in continuously for 14 days before production opens.
