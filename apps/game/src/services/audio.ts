@@ -28,3 +28,15 @@ export function setPlatformMuted(muted: boolean): void {
 export function applyMute(): void {
   if (manager !== null) manager.mute = adPlaying || platformMuted || !isSoundOn();
 }
+
+/**
+ * Plays one effect from anywhere, not just inside a scene - the UI widgets are shared, so the
+ * taps and whooshes come through here. `detune` is in cents. Silent until BootScene has bound
+ * the sound manager, and silent for a key whose file failed to load, which is the same
+ * fallback BootScene takes for missing art.
+ */
+export function playSfx(key: string, detune = 0): void {
+  const sound = manager;
+  if (sound === null || !sound.game.cache.audio.exists(key)) return;
+  sound.play(key, { detune });
+}

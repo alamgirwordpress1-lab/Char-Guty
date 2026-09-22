@@ -61,6 +61,10 @@ const SOUNDS: readonly (readonly [key: string, file: string])[] = [
   ["sfx-tokka-hit", "tokka-hit.wav"],
   ["sfx-die", "die.wav"],
   ["sfx-win", "win.wav"],
+  ["sfx-coin", "coin.wav"],
+  ["sfx-tap", "ui-tap.wav"],
+  ["sfx-open", "ui-open.wav"],
+  ["sfx-tick", "tick.wav"],
 ];
 
 type Restored = "signed-in" | "signed-out" | "offline";

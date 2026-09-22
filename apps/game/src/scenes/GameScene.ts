@@ -85,6 +85,8 @@ interface HudLayout {
 }
 
 const THROW_MS = 900;
+/** The clock starts ticking out loud with this many seconds left on the player's own turn. */
+const TICK_FROM = 5;
 const FRAME_MS = DEFAULT_CONFIG.dt * 1000;
 const TOAST_MS = 650;
 const COUNT_MS = 320;
@@ -165,6 +167,8 @@ export class GameScene extends Phaser.Scene {
 
   private clockOffset = 0;
   private deadline: number | null = null;
+  /** The last whole second the clock was ticked at, so each one only sounds once. */
+  private lastTick = -1;
   /** True while it's this player's tokka and no flick has been sent for it yet. */
   private canTokka = false;
   private aim: { shooter: GutiView; pointerId: number } | null = null;
@@ -230,6 +234,22 @@ export class GameScene extends Phaser.Scene {
     for (const [id, seat] of this.panels) {
       seat.setTimer(ticking && id === match.currentPlayer ? left : null);
     }
+    this.tickClock(ticking && match?.currentPlayer === this.me ? left : null);
+  }
+
+  /**
+   * Counts the player's last few seconds out loud, once each. Only on their own turn: hearing
+   * someone else's clock run down is noise, but missing your own costs you the turn.
+   */
+  private tickClock(left: number | null): void {
+    if (left === null) {
+      this.lastTick = -1;
+      return;
+    }
+    const seconds = Math.ceil((left * DEFAULT_CONFIG.turnTimeoutMs) / 1000);
+    if (seconds > TICK_FROM || seconds < 1 || seconds === this.lastTick) return;
+    this.lastTick = seconds;
+    this.playSfx("sfx-tick", (TICK_FROM - seconds) * 90);
   }
 
   // ---- construction ----
@@ -531,6 +551,8 @@ export class GameScene extends Phaser.Scene {
           break;
         case "WIN":
           this.playSfx("sfx-win");
+          // The pot lands a beat after the fanfare, so the two are heard as cause and effect.
+          this.time.delayedCall(620, () => this.playSfx("sfx-coin"));
           await this.toast(event.reason === "ZERO_FLAT" ? "INSTANT WIN!" : "WIN!");
           lastWasTokka = false;
           break;
@@ -554,14 +576,17 @@ export class GameScene extends Phaser.Scene {
   private async countOff(): Promise<void> {
     const views = [...this.gutis.values()].sort((a, b) => a.x - b.x);
     for (const [i, view] of views.entries()) {
-      this.playSfx("sfx-land");
+      this.playSfx("sfx-land", i * 80);
       await this.floatText(String(i + 1), view.x, view.y - 30, COUNT_MS, COLOR.goldText);
     }
   }
 
-  /** No-ops if the sound failed to load - see BootScene's asset fallback comment. */
-  private playSfx(key: string): void {
-    if (this.cache.audio.exists(key)) this.sound.play(key);
+  /**
+   * No-ops if the sound failed to load - see BootScene's asset fallback comment. `detune` is
+   * in cents: four identical thuds in a row sound synthetic, four nudged apart do not.
+   */
+  private playSfx(key: string, detune = 0): void {
+    if (this.cache.audio.exists(key)) this.sound.play(key, { detune });
   }
 
   /** Tosses the sticks in from the thrower's side; each spins down to rest where the server put it. */
@@ -580,10 +605,13 @@ export class GameScene extends Phaser.Scene {
       }
       view.setPosition(originX, originY - i * 10);
       const target = toScreen(g.x, g.y);
-      return this.flyGuti(view, target.x, target.y, g.side, restingAngle(g.x, g.y), i * 60);
+      // Each one thuds as it arrives rather than all four at the end, so what you hear and
+      // what you see land together however long the flight tween runs for.
+      return this.flyGuti(view, target.x, target.y, g.side, restingAngle(g.x, g.y), i * 60).then(
+        () => this.playSfx("sfx-land", (i - 1.5) * 110),
+      );
     });
     await Promise.all(flights);
-    this.playSfx("sfx-land");
   }
 
   private flyGuti(

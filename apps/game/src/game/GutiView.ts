@@ -6,11 +6,17 @@ export type Side = "F" | "R";
 export type Highlight = "none" | "active";
 
 const R = GUTI_RADIUS * FIELD_SCALE;
-/** A round stick split lengthwise, seen from above: about twice as long as it is wide. */
-const LENGTH = R * 2.3;
-const WIDTH = R * 1.15;
-const RING_RADIUS = R * 1.25 + 7;
-const HIT_SIZE = (R + 10) * 2;
+/**
+ * A round stick split lengthwise, seen from above: about twice as long as it is wide. The
+ * sim treats a guti as a circle of radius R, and the art sits inside padding for its shadow,
+ * so at the old size the stick drawn on the mat covered noticeably less ground than the circle
+ * it collides with - it read as small, and a tokka could land with a visible gap still showing.
+ * These carry about the same area as that circle instead.
+ */
+const LENGTH = R * 2.65;
+const WIDTH = R * 1.32;
+const RING_RADIUS = R * 1.4 + 7;
+const HIT_SIZE = (R + 12) * 2;
 
 function textureFor(side: Side): string {
   return side === "F" ? "guti-flat" : "guti-round";

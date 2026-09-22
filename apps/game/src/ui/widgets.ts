@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, LANDSCAPE } from "../config.js";
+import { playSfx } from "../services/audio.js";
 import { getSession } from "../state/session.js";
 import { COLOR, TEXT } from "./theme.js";
 
@@ -40,6 +41,8 @@ export function pressable(
     if (!isEnabled()) return;
     pressed = true;
     container.setScale(0.95);
+    // On the press, not the release: a tap should answer under the finger straight away.
+    playSfx("sfx-tap");
   });
   container.on("pointerout", () => {
     pressed = false;
@@ -275,6 +278,7 @@ export function dialog(
 ): Dialog {
   const cx = GAME_WIDTH / 2;
   const cy = GAME_HEIGHT / 2;
+  playSfx("sfx-open");
   const dim = scene.add
     .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, COLOR.deepNavy, 0.72)
     .setOrigin(0)
