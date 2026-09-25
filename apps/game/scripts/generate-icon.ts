@@ -114,12 +114,165 @@ function shareSvg(): string {
   </svg>`;
 }
 
+// ---------------------------------------------------------------------------
+// The three CrazyGames covers. They are built from the game's own art - the same board
+// frame, mat and guti sprites the player sees - rather than from a drawn logo, because a
+// cover that shows the real game is the one CrazyGames asks for and the one that does not
+// mislead anyone who clicks it.
+// ---------------------------------------------------------------------------
+
+const assetsDir = fileURLToPath(new URL("../public/assets", import.meta.url));
+
+/** Nine-slices a square source to width x height, the way Phaser draws the board frame. */
+async function nineSlice(file: string, width: number, height: number): Promise<Buffer> {
+  const path = `${assetsDir}/${file}`;
+  const meta = await sharp(path).metadata();
+  const size = meta.width ?? 160;
+  // The frame art carries a 52px border in a 160px square; keep that ratio at any size.
+  const border = Math.max(1, Math.min(Math.floor(Math.min(width, height) / 2), 52));
+  const srcBorder = 52;
+  const srcMid = size - srcBorder * 2;
+  const midW = Math.max(1, width - border * 2);
+  const midH = Math.max(1, height - border * 2);
+  const piece = (
+    left: number,
+    top: number,
+    w: number,
+    h: number,
+    tw: number,
+    th: number,
+  ): Promise<Buffer> =>
+    sharp(path)
+      .extract({ left, top, width: w, height: h })
+      .resize(Math.max(1, tw), Math.max(1, th), { fit: "fill" })
+      .toBuffer();
+  const b = srcBorder;
+  const parts = await Promise.all([
+    piece(0, 0, b, b, border, border),
+    piece(b, 0, srcMid, b, midW, border),
+    piece(size - b, 0, b, b, border, border),
+    piece(0, b, b, srcMid, border, midH),
+    piece(b, b, srcMid, srcMid, midW, midH),
+    piece(size - b, b, b, srcMid, border, midH),
+    piece(0, size - b, b, b, border, border),
+    piece(b, size - b, srcMid, b, midW, border),
+    piece(size - b, size - b, b, b, border, border),
+  ]);
+  const at: readonly (readonly [number, number])[] = [
+    [0, 0],
+    [border, 0],
+    [width - border, 0],
+    [0, border],
+    [border, border],
+    [width - border, border],
+    [0, height - border],
+    [border, height - border],
+    [width - border, height - border],
+  ];
+  return sharp({
+    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite(parts.map((input, i) => ({ input, left: at[i]?.[0] ?? 0, top: at[i]?.[1] ?? 0 })))
+    .png()
+    .toBuffer();
+}
+
+/**
+ * Where the four pieces lie on the cover's mat, as fractions of the mat, and their angles.
+ * Drawn larger than they are in play and grouped tighter: a cover is read as a thumbnail a
+ * few hundred pixels wide, where four pieces at their real size vanish into the mat.
+ */
+const COVER_GUTIS: readonly { face: "flat" | "round"; x: number; y: number; angle: number }[] = [
+  { face: "flat", x: 0.34, y: 0.33, angle: -16 },
+  { face: "round", x: 0.63, y: 0.3, angle: 22 },
+  { face: "flat", x: 0.38, y: 0.66, angle: 10 },
+  { face: "flat", x: 0.66, y: 0.66, angle: -34 },
+];
+
+/** Tilts the board a little and lays a soft shadow under it, so it sits in the cover. */
+async function tiltWithShadow(board: Buffer, angle: number): Promise<Buffer> {
+  const tilted = await sharp(board)
+    .rotate(angle, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer();
+  const meta = await sharp(tilted).metadata();
+  const width = meta.width ?? 1;
+  const height = meta.height ?? 1;
+  const drop = 22;
+  // The shadow is the board's own silhouette, blurred and dimmed.
+  const mask = await sharp(tilted).extractChannel(3).blur(20).linear(0.5, 0).toBuffer();
+  const shadow = await sharp({
+    create: { width, height, channels: 3, background: { r: 3, g: 8, b: 26 } },
+  })
+    .joinChannel(mask)
+    .png()
+    .toBuffer();
+  return sharp({
+    create: {
+      width,
+      height: height + drop,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      { input: shadow, left: 0, top: drop },
+      { input: tilted, left: 0, top: 0 },
+    ])
+    .png()
+    .toBuffer();
+}
+
+/** The board as it is played on: the framed mat with four gutis scattered across it. */
+async function boardImage(
+  matWidth: number,
+): Promise<{ image: Buffer; width: number; height: number }> {
+  const matHeight = Math.round(matWidth * 0.75); // the sim field is 400x300
+  const frame = Math.round(matWidth * 0.055);
+  const width = matWidth + frame * 2;
+  const height = matHeight + frame * 2;
+  const gutiLength = Math.round(matWidth * 0.2);
+  const gutiWidth = Math.round(gutiLength * 0.5);
+
+  const layers: { input: Buffer; left: number; top: number }[] = [
+    { input: await nineSlice("board-frame.png", width, height), left: 0, top: 0 },
+    {
+      input: await sharp(`${assetsDir}/courtyard-bg.png`)
+        .resize(matWidth, matHeight, { fit: "fill" })
+        .toBuffer(),
+      left: frame,
+      top: frame,
+    },
+  ];
+  for (const g of COVER_GUTIS) {
+    const piece = await sharp(`${assetsDir}/guti-${g.face}.png`)
+      .resize(gutiLength, gutiWidth, { fit: "fill" })
+      .rotate(g.angle, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .toBuffer();
+    const size = await sharp(piece).metadata();
+    layers.push({
+      input: piece,
+      left: Math.round(frame + matWidth * g.x - (size.width ?? 0) / 2),
+      top: Math.round(frame + matHeight * g.y - (size.height ?? 0) / 2),
+    });
+  }
+  const image = await sharp({
+    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite(layers)
+    .png()
+    .toBuffer();
+  return { image, width, height };
+}
+
 interface Cover {
   readonly file: string;
   readonly width: number;
   readonly height: number;
-  /** Centre and scale of the four gutis. */
-  readonly gutis: { readonly x: number; readonly y: number; readonly scale: number };
+  /** Width of the mat inside the board, and where the board's centre sits on the cover. */
+  readonly mat: number;
+  readonly boardX: number;
+  readonly boardY: number;
   /** Centre line, baseline and size of the title. */
   readonly title: { readonly x: number; readonly y: number; readonly size: number };
 }
@@ -133,41 +286,44 @@ const COVERS: readonly Cover[] = [
     file: "cover-1920x1080.png",
     width: 1920,
     height: 1080,
-    gutis: { x: 540, y: 540, scale: 1.1 },
-    title: { x: 1400, y: 600, size: 170 },
+    mat: 880,
+    boardX: 610,
+    boardY: 540,
+    title: { x: 1420, y: 600, size: 150 },
   },
   {
     file: "cover-800x1200.png",
     width: 800,
     height: 1200,
-    gutis: { x: 400, y: 480, scale: 0.95 },
-    title: { x: 400, y: 1010, size: 120 },
+    mat: 640,
+    boardX: 400,
+    boardY: 470,
+    title: { x: 400, y: 1010, size: 112 },
   },
   {
     file: "cover-800x800.png",
     width: 800,
     height: 800,
-    gutis: { x: 400, y: 330, scale: 0.72 },
-    title: { x: 400, y: 712, size: 104 },
+    mat: 610,
+    boardX: 400,
+    boardY: 330,
+    title: { x: 400, y: 720, size: 104 },
   },
 ];
 
-function coverSvg({ width, height, gutis, title }: Cover): string {
-  const left = gutis.x - 512 * gutis.scale;
-  const top = gutis.y - 500 * gutis.scale;
-  const glowX = `${Math.round((gutis.x / width) * 100)}%`;
-  const glowY = `${Math.round((gutis.y / height) * 100)}%`;
+function coverBackgroundSvg({ width, height, boardX, boardY }: Cover): string {
+  const glowX = `${Math.round((boardX / width) * 100)}%`;
+  const glowY = `${Math.round((boardY / height) * 100)}%`;
   return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      ${glow(glowX, glowY, "80%")}
-      ${GUTI_PAINTS}
-      ${dropShadow(14, 16)}
-    </defs>
+    <defs>${glow(glowX, glowY, "82%")}</defs>
     <rect width="${width}" height="${height}" fill="url(#bg)"/>
-    <g transform="translate(${left} ${top}) scale(${gutis.scale})" filter="url(#drop)">
-      ${FOUR_GUTIS}
-    </g>
-    <text x="${title.x}" y="${title.y}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${title.size}" font-weight="700" fill="#ffd166" filter="url(#drop)">Char Guty</text>
+  </svg>`;
+}
+
+function coverTitleSvg({ width, height, title }: Cover): string {
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <defs>${dropShadow(10, 12)}</defs>
+    <text x="${title.x}" y="${title.y}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${title.size}" font-weight="700" fill="#ffd166" stroke="#0a173f" stroke-width="${Math.round(title.size * 0.06)}" paint-order="stroke" filter="url(#drop)">Char Guty</text>
   </svg>`;
 }
 
@@ -194,7 +350,18 @@ console.log(`wrote public/share-card.png (1200x630, ${share.length} bytes)`);
 
 mkdirSync(`${outDir}/crazygames`, { recursive: true });
 for (const cover of COVERS) {
-  const image = await sharp(Buffer.from(coverSvg(cover)))
+  const board = await boardImage(cover.mat);
+  const tilted = await tiltWithShadow(board.image, -7);
+  const size = await sharp(tilted).metadata();
+  const image = await sharp(Buffer.from(coverBackgroundSvg(cover)))
+    .composite([
+      {
+        input: tilted,
+        left: Math.round(cover.boardX - (size.width ?? 0) / 2),
+        top: Math.round(cover.boardY - (size.height ?? 0) / 2),
+      },
+      { input: Buffer.from(coverTitleSvg(cover)), left: 0, top: 0 },
+    ])
     .png()
     .toBuffer();
   writeFileSync(`${outDir}/crazygames/${cover.file}`, image);
