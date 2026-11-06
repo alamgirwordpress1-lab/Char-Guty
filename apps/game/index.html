@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mode="%MODE%">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -49,6 +49,37 @@
           transform: rotate(360deg);
         }
       }
+      /* Who runs the site, as Meta's business verification wants it on charguty.online.
+         Only the web build (data-mode="web") shows it; the store and portal builds don't. */
+      #site-owner {
+        display: none;
+      }
+      /* !important: Phaser writes height: 100% inline on its parent. */
+      html[data-mode="web"] #game-container {
+        height: calc(100vh - 28px) !important;
+      }
+      html[data-mode="web"] #site-owner {
+        display: flex;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 8px;
+        overflow: hidden;
+        white-space: nowrap;
+        font-family: "Segoe UI", sans-serif;
+        font-size: 12px;
+        color: #8fa3cf;
+      }
+      @media (max-width: 420px) {
+        html[data-mode="web"] #site-owner {
+          font-size: 11px;
+          gap: 6px;
+        }
+      }
+      #site-owner a {
+        color: #b9c6e4;
+      }
     </style>
   </head>
   <body>
@@ -58,6 +89,11 @@
         <div class="boot-text">Loading...</div>
       </div>
     </div>
+    <footer id="site-owner">
+      <span>Owned and operated by MD ALAMGIR HOSSEN</span>
+      <span>·</span>
+      <a href="https://http--char-guty-server--gf6pxjtyq6lt.code.run/privacy">Privacy policy</a>
+    </footer>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
